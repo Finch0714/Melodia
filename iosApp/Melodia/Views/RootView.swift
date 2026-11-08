@@ -43,6 +43,7 @@ struct RootView: View {
         .fullScreenCover(isPresented: $showNowPlaying) {
             NowPlayingView()
                 .environmentObject(player)
+                .environmentObject(appModel)
         }
         .task {
             await appModel.bootstrap()

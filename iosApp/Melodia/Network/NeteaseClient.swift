@@ -11,6 +11,9 @@ enum NeteaseError: LocalizedError {
         case .network(let message):
             return message
         case .server(let code, let message):
+            if let friendly = NeteaseError.friendlyMessage(for: code) {
+                return friendly
+            }
             return message.isEmpty ? "网易云接口错误（\(code)）" : message
         case .invalidResponse:
             return "服务器返回了无法解析的数据"
@@ -18,6 +21,30 @@ enum NeteaseError: LocalizedError {
             return message
         }
     }
+
+    static func friendlyMessage(for code: Int) -> String? {
+        switch code {
+        case 301:
+            return "需要登录后才能使用此功能"
+        case 250:
+            return "登录状态已失效，请重新登录"
+        case 8821:
+            return "网易云提示客户端版本过低。已切换到桌面协议，若仍失败请使用 Cookie 登录。"
+        case 800:
+            return "二维码已过期，请刷新后重试"
+        case 803:
+            return "授权成功"
+        default:
+            return nil
+        }
+    }
+}
+
+enum SearchType: Int {
+    case song = 1
+    case album = 10
+    case artist = 100
+    case playlist = 1000
 }
 
 actor NeteaseClient {
@@ -29,6 +56,11 @@ actor NeteaseClient {
         let url: URL
     }
 
+    private enum CookieIdentity {
+        case desktop
+        case web
+    }
+
     private let session: URLSession
     private let decoder = JSONDecoder()
     private var cookies: String
@@ -37,11 +69,14 @@ actor NeteaseClient {
     private let eapiHost = "https://interface.music.163.com"
     private let webHost = "https://music.163.com"
     private let cookieKey = "melodia.netease.cookies"
+    private let desktopAppVersion = "3.1.23.204814"
+    private let desktopOSVersion = "Microsoft-Windows-10-Professional-build-10512-64bit"
+    private let desktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) NeteaseMusicDesktop/3.1.23.204814 Chrome/91.0.4472.164 Electron/13.6.9 Safari/537.36"
 
     init() {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 40
+        configuration.timeoutIntervalForResource = 45
         configuration.httpShouldSetCookies = true
         configuration.httpCookieStorage = HTTPCookieStorage.shared
         session = URLSession(configuration: configuration)
@@ -49,7 +84,7 @@ actor NeteaseClient {
     }
 
     func loggedIn() -> Bool {
-        cookies.contains("MUSIC_U=")
+        cookieValue(named: "MUSIC_U")?.isEmpty == false
     }
 
     func cookieSnapshot() -> String {
@@ -122,27 +157,47 @@ actor NeteaseClient {
         return response.songs
     }
 
-    func searchSongs(keyword: String, limit: Int = 30, offset: Int = 0) async throws -> [Track] {
+    func search(
+        keyword: String,
+        type: SearchType,
+        limit: Int = 30,
+        offset: Int = 0
+    ) async throws -> SearchResult {
         let response: SearchResponse = try await postEAPI(
             "/eapi/cloudsearch/pc",
-            payload: ["s": keyword, "type": 1, "limit": limit, "offset": offset]
+            payload: ["s": keyword, "type": type.rawValue, "limit": limit, "offset": offset]
         )
+        guard response.code == 200, let result = response.result else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return result
+    }
+
+    func searchSongs(keyword: String, limit: Int = 30, offset: Int = 0) async throws -> [Track] {
+        let result = try await search(keyword: keyword, type: .song, limit: limit, offset: offset)
+        return result.songs ?? []
+    }
+
+    func hotSearches() async throws -> [String] {
+        let response: HotSearchEnvelope = try await postEAPI("/eapi/hotsearchlist/get", payload: [:])
         guard response.code == 200 else {
             throw NeteaseError.server(response.code, "")
         }
-        return response.result?.songs ?? []
+        return response.data
+            .map(\.searchWord)
+            .filter { !$0.isEmpty }
     }
 
-    func songURL(id: Int64) async throws -> URL {
+    func songURL(id: Int64, level: String = "exhigh") async throws -> URL {
         let ids = "[\(id)]"
         let response: SongURLResponse = try await postEAPI(
             "/eapi/song/enhance/player/url/v1",
-            payload: ["ids": ids, "level": "standard", "encodeType": "flac"]
+            payload: ["ids": ids, "level": level, "encodeType": "flac"]
         )
         guard response.code == 200, let item = response.data.first else {
             throw NeteaseError.server(response.code, "无法获取播放地址")
         }
-        guard let rawURL = item.url, !rawURL.isEmpty, let url = URL(string: rawURL) else {
+        guard let rawURL = item.url, !rawURL.isEmpty, let url = secureURL(rawURL) else {
             throw NeteaseError.unavailable("该歌曲暂无版权或当前账号无播放权限")
         }
         return url
@@ -175,7 +230,196 @@ actor NeteaseClient {
         return response.profile
     }
 
-    func qrKey() async throws -> String {
+    func userPlaylists(uid: Int64) async throws -> [UserPlaylist] {
+        let response: UserPlaylistsResponse = try await postEAPI(
+            "/eapi/user/playlist",
+            payload: ["uid": uid, "limit": 1000, "offset": 0, "includeTop": true]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.playlist
+    }
+
+    func userSubcount() async throws -> UserSubcount {
+        let response: UserSubcount = try await postWEAPI(
+            "/weapi/subcount",
+            payload: [:],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response
+    }
+
+    func subscribedAlbums() async throws -> [AlbumShelfItem] {
+        let response: AlbumSublistResponse = try await postEAPI(
+            "/eapi/album/sublist",
+            payload: ["limit": 1000, "offset": 0, "total": true]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.data
+    }
+
+    func listeningRank(uid: Int64, type: Int) async throws -> ListeningRankResponse {
+        let response: ListeningRankResponse = try await postWEAPI(
+            "/weapi/v1/play/record",
+            payload: ["uid": uid, "type": type],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response
+    }
+
+    func likedSongIDs(uid: Int64) async throws -> [Int64] {
+        let response: LikedSongIDsResponse = try await postEAPI(
+            "/eapi/song/like/get",
+            payload: ["uid": uid]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.ids
+    }
+
+    func likeSong(trackID: Int64, like: Bool) async throws {
+        let response: LikeSongResponse = try await postEAPI(
+            "/eapi/song/like",
+            payload: ["trackId": trackID, "like": like]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+    }
+
+    func artistDetail(id: Int64) async throws -> ArtistDetail? {
+        let response: ArtistDetailEnvelope = try await postEAPI(
+            "/eapi/artist/head/info/get",
+            payload: ["id": id]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.data?.artist
+    }
+
+    func artistSongs(id: Int64, limit: Int = 100) async throws -> [Track] {
+        do {
+            let response: ArtistSongsResponse = try await postEAPI(
+                "/eapi/v1/artist/songs",
+                payload: [
+                    "id": id,
+                    "private_cloud": "true",
+                    "work_type": 1,
+                    "order": "hot",
+                    "offset": 0,
+                    "limit": limit
+                ]
+            )
+            guard response.code == 200 else {
+                throw NeteaseError.server(response.code, "")
+            }
+            return response.songs
+        } catch {
+            let response: ArtistSongsResponse = try await postWEAPI(
+                "/weapi/artist/top/song",
+                payload: ["id": id],
+                includeCookies: true
+            )
+            guard response.code == 200 else {
+                throw NeteaseError.server(response.code, "")
+            }
+            return response.songs
+        }
+    }
+
+    func artistAlbums(id: Int64, limit: Int = 30, offset: Int = 0) async throws -> [ArtistAlbum] {
+        let response: ArtistAlbumsResponse = try await postWEAPI(
+            "/weapi/artist/albums/\(id)",
+            payload: ["limit": limit, "offset": offset, "total": true],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.hotAlbums
+    }
+
+    func albumDetail(id: Int64) async throws -> AlbumDetailResponse {
+        let response: AlbumDetailResponse = try await postWEAPI(
+            "/weapi/v1/album/\(id)",
+            payload: [:],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response
+    }
+
+    func comments(
+        threadID: String,
+        page: Int = 1,
+        pageSize: Int = 30,
+        sortType: Int = 99
+    ) async throws -> CommentsData {
+        let cursor: String
+        switch sortType {
+        case 2:
+            cursor = "normalHot#\(max(0, (page - 1) * pageSize))"
+        case 3:
+            cursor = page <= 1 ? "0" : "\(max(0, (page - 1) * pageSize))"
+        default:
+            cursor = "\(max(0, (page - 1) * pageSize))"
+        }
+
+        let response: CommentsEnvelope = try await postWEAPI(
+            "/weapi/v2/resource/comments",
+            payload: [
+                "threadId": threadID,
+                "pageNo": page,
+                "pageSize": pageSize,
+                "cursor": cursor,
+                "sortType": sortType,
+                "showInner": true
+            ],
+            includeCookies: true
+        )
+        guard response.code == 200, let data = response.data else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return data
+    }
+
+    func similarSongs(id: Int64) async throws -> [Track] {
+        let response: SimilarSongsResponse = try await postEAPI(
+            "/eapi/v1/discovery/simiSong",
+            payload: ["songid": "\(id)"]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.songs
+    }
+
+    func qrKey() async throws -> QRLoginSession {
+        do {
+            let response: QRKeyResponse = try await postEAPI(
+                "/eapi/login/qrcode/unikey",
+                payload: ["type": 1]
+            )
+            if response.code == 200, !response.unikey.isEmpty {
+                return QRLoginSession(key: response.unikey, transport: .desktop)
+            }
+        } catch {
+            // Fall through to the legacy endpoint.
+        }
+
         let response: QRKeyResponse = try await postWEAPI(
             "/weapi/login/qrcode/unikey",
             payload: ["type": 1],
@@ -184,15 +428,25 @@ actor NeteaseClient {
         guard response.code == 200, !response.unikey.isEmpty else {
             throw NeteaseError.server(response.code, "无法生成登录二维码")
         }
-        return response.unikey
+        return QRLoginSession(key: response.unikey, transport: .web)
     }
 
-    func qrStatus(key: String) async throws -> QRCheckResponse {
-        let raw: RawResponse = try await postWEAPIRaw(
-            "/weapi/login/qrcode/client/login",
-            payload: ["key": key, "type": 1],
-            includeCookies: false
-        )
+    func qrStatus(session: QRLoginSession) async throws -> QRCheckResponse {
+        let raw: RawResponse
+        switch session.transport {
+        case .desktop:
+            raw = try await postEAPIRaw(
+                "/eapi/login/qrcode/client/login",
+                payload: ["key": session.key, "type": 1]
+            )
+        case .web:
+            raw = try await postWEAPIRaw(
+                "/weapi/login/qrcode/client/login",
+                payload: ["key": session.key, "type": 1],
+                includeCookies: false
+            )
+        }
+
         let result = try decoder.decode(QRCheckResponse.self, from: raw.data)
         if result.code == 803 {
             let pairs = cookiePairs(from: raw.response)
@@ -207,18 +461,29 @@ actor NeteaseClient {
         _ path: String,
         payload: [String: Any]
     ) async throws -> T {
+        let raw = try await postEAPIRaw(path, payload: payload)
+        return try decoder.decode(T.self, from: raw.data)
+    }
+
+    private func postEAPIRaw(
+        _ path: String,
+        payload: [String: Any]
+    ) async throws -> RawResponse {
         var root = payload
         let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let requestID = "\(now)_\(Int.random(in: 1000...9999))"
         root["header"] = [
-            "osver": "17.0",
+            "osver": desktopOSVersion,
             "deviceId": deviceId,
-            "os": "android",
-            "appver": "9.0.90",
+            "os": "pc",
+            "appver": desktopAppVersion,
             "versioncode": "140",
-            "mobilename": "iPhone15,2",
+            "mobilename": "",
             "buildver": String(now / 1000),
             "resolution": "1920x1080",
-            "requestId": "\(now)_\(Int.random(in: 1000...9999))"
+            "requestId": requestID,
+            "channel": "netease",
+            "__csrf": csrfToken()
         ]
         root["e_r"] = false
 
@@ -229,12 +494,11 @@ actor NeteaseClient {
             throw NeteaseError.invalidResponse
         }
 
-        let raw = try await postForm(
+        return try await postForm(
             url: eapiHost + path,
             fields: ["params": params],
             headers: eapiHeaders()
         )
-        return try decoder.decode(T.self, from: raw.data)
     }
 
     private func postWEAPI<T: Decodable>(
@@ -267,7 +531,7 @@ actor NeteaseClient {
 
         var headers = webHeaders()
         if includeCookies {
-            headers["Cookie"] = cookieHeader(useAndroid: false)
+            headers["Cookie"] = cookieHeader(identity: .web)
         }
         return try await postForm(
             url: webHost + path,
@@ -287,9 +551,11 @@ actor NeteaseClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = formBody(fields)
+        request.timeoutInterval = 20
         request.setValue("application/x-www-form-urlencoded;charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
 
         do {
@@ -309,10 +575,9 @@ actor NeteaseClient {
     }
 
     private func eapiHeaders() -> [String: String] {
-        let userAgent = "NeteaseMusic/9.0.90 (Linux; U; Android 17.0; zh_CN; iPhone15,2)"
-        return [
-            "User-Agent": userAgent,
-            "Cookie": cookieHeader(useAndroid: true)
+        [
+            "User-Agent": desktopUserAgent,
+            "Cookie": cookieHeader(identity: .desktop)
         ]
     }
 
@@ -323,27 +588,57 @@ actor NeteaseClient {
         ]
     }
 
-    private func cookieHeader(useAndroid: Bool) -> String {
-        var parts = cookies
+    private func cookieHeader(identity: CookieIdentity) -> String {
+        let identityKeys: Set<String> = [
+            "os", "osver", "appver", "versioncode", "mobilename", "buildver",
+            "resolution", "requestid", "channel", "deviceid"
+        ]
+        var pairs = cookies
             .split(separator: ";")
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("os=") }
-        if useAndroid {
-            parts.append("os=android")
-            parts.append("appver=9.0.90")
-            parts.append("osver=17.0")
-        } else {
-            parts.append("os=pc")
-            parts.append("osver=Microsoft-Windows-10-Professional-build-10512-64bit")
-            parts.append("appver=3.0.1.201552")
+            .filter { !$0.isEmpty }
+            .filter { pair in
+                guard let equals = pair.firstIndex(of: "=") else { return false }
+                let key = String(pair[..<equals]).lowercased()
+                return !identityKeys.contains(key)
+            }
+
+        let now = Date()
+        let milliseconds = Int64(now.timeIntervalSince1970 * 1000)
+        switch identity {
+        case .desktop:
+            pairs.append("os=pc")
+            pairs.append("osver=\(desktopOSVersion)")
+            pairs.append("appver=\(desktopAppVersion)")
+            pairs.append("versioncode=140")
+            pairs.append("mobilename=")
+            pairs.append("buildver=\(Int64(now.timeIntervalSince1970))")
+            pairs.append("resolution=1920x1080")
+            pairs.append("channel=netease")
+            pairs.append("requestId=\(milliseconds)_\(Int.random(in: 1000...9999))")
+            pairs.append("deviceId=\(deviceId)")
+        case .web:
+            pairs.append("os=pc")
+            pairs.append("osver=\(desktopOSVersion)")
+            pairs.append("appver=\(desktopAppVersion)")
+            pairs.append("versioncode=140")
         }
-        return parts.joined(separator: "; ")
+        return pairs.joined(separator: "; ")
+    }
+
+    private func cookieValue(named name: String) -> String? {
+        for pair in cookies.split(separator: ";") {
+            let trimmed = pair.trimmingCharacters(in: .whitespaces)
+            guard let equals = trimmed.firstIndex(of: "=") else { continue }
+            if String(trimmed[..<equals]) == name {
+                return String(trimmed[trimmed.index(after: equals)...])
+            }
+        }
+        return nil
     }
 
     private func csrfToken() -> String {
-        guard let range = cookies.range(of: "__csrf=") else { return "" }
-        let rest = cookies[range.upperBound...]
-        return String(rest.prefix { $0 != ";" })
+        cookieValue(named: "__csrf") ?? ""
     }
 
     private func formBody(_ fields: [String: String]) -> Data {
@@ -371,6 +666,9 @@ actor NeteaseClient {
 
     private func cookiePairs(from response: HTTPURLResponse) -> [String] {
         let pattern = try! NSRegularExpression(pattern: "(?:^|[,\\n])\\s*([^=;,\\s]+)=([^;,]*)")
+        let ignored: Set<String> = [
+            "path", "expires", "max-age", "domain", "secure", "httponly", "samesite"
+        ]
         var pairs = [String]()
         for (key, value) in response.allHeaderFields {
             guard
@@ -393,8 +691,8 @@ actor NeteaseClient {
                         let valueRange = Range(match.range(at: 2), in: header)
                     else { continue }
                     let cookieName = String(header[nameRange])
+                    if ignored.contains(cookieName.lowercased()) { continue }
                     let cookieValue = String(header[valueRange])
-                    if cookieName.caseInsensitiveCompare("Path") == .orderedSame { continue }
                     pairs.append("\(cookieName)=\(cookieValue)")
                 }
             }
@@ -417,11 +715,25 @@ actor NeteaseClient {
     }
 
     private func replaceCookies(with value: String) {
-        cookies = value
+        let normalized = value
             .replacingOccurrences(of: "\n", with: "; ")
             .replacingOccurrences(of: "\r", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        var values = [String: String]()
+        for pair in normalized.split(separator: ";") {
+            let trimmed = pair.trimmingCharacters(in: .whitespaces)
+            guard let equals = trimmed.firstIndex(of: "=") else { continue }
+            values[String(trimmed[..<equals])] = String(trimmed[trimmed.index(after: equals)...])
+        }
+        cookies = values.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
         UserDefaults.standard.set(cookies, forKey: cookieKey)
+    }
+
+    private func secureURL(_ raw: String) -> URL? {
+        if raw.hasPrefix("http://") {
+            return URL(string: "https://" + String(raw.dropFirst("http://".count)))
+        }
+        return URL(string: raw)
     }
 }
 
@@ -432,4 +744,9 @@ private struct DailySongsEnvelope: Decodable {
 
 private struct DailySongsData: Decodable {
     let dailySongs: [Track]
+}
+
+private struct SimilarSongsResponse: Decodable {
+    let code: Int
+    let songs: [Track]
 }

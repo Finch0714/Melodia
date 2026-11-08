@@ -19,40 +19,71 @@ enum LyricParser {
     private static let lrcTimePattern = try! NSRegularExpression(pattern: "\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{2,3}))?\\]")
 
     static func parse(response: LyricResponse) -> [LyricLine] {
-        let translationText = response.ytlrc?.lyric ?? response.tlyric?.lyric
+        let yTranslated = response.ytlrc?.lyric?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let translationText = yTranslated.isEmpty ? response.tlyric?.lyric : yTranslated
         let translations = translationMap(from: translationText)
+        let translationKeys = translations.keys.sorted()
+
+        let yrcText = response.yrc?.lyric ?? ""
+        let lrcText = response.lrc?.lyric ?? ""
 
         var lines: [LyricLine]
-        if let yrc = response.yrc?.lyric, !yrc.isEmpty {
-            lines = parseYRC(yrc)
+        if containsYRCContent(yrcText) {
+            lines = parseAny(yrcText)
         } else {
-            lines = []
+            lines = parseAny(lrcText)
         }
-        if lines.isEmpty, let lrc = response.lrc?.lyric {
-            lines = parseLRC(lrc)
+        if lines.isEmpty {
+            lines = parseAny(lrcText)
         }
         guard !lines.isEmpty else { return [] }
 
         return lines.map { line in
-            let key = Int((line.time * 1000).rounded())
-            return LyricLine(
+            LyricLine(
                 time: line.time,
                 text: line.text,
-                translation: translations[key]
+                translation: translation(
+                    at: Int((line.time * 1000).rounded()),
+                    keys: translationKeys,
+                    values: translations
+                )
             )
         }
     }
 
     static func parseLRC(_ text: String) -> [LyricLine] {
+        parseAny(text)
+    }
+
+    private static func parseAny(_ text: String) -> [LyricLine] {
+        guard !text.isEmpty else { return [] }
         var result = [LyricLine]()
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else { continue }
-            let range = NSRange(line.startIndex..<line.endIndex, in: line)
-            let matches = lrcTimePattern.matches(in: line, range: range)
-            guard !matches.isEmpty else { continue }
 
-            guard let last = matches.last, let bodyRange = Range(last.range, in: line) else { continue }
+            if line.hasPrefix("{") {
+                if let parsed = parseJSONLine(line) {
+                    result.append(parsed)
+                }
+                continue
+            }
+
+            let range = NSRange(line.startIndex..<line.endIndex, in: line)
+            if let yrcMatch = yrcLinePattern.firstMatch(in: line, range: range) {
+                guard let start = integer(yrcMatch, group: 1, in: line) else { continue }
+                let body = string(yrcMatch, group: 3, in: line)
+                    .replacingOccurrences(of: "\\(\\d+,\\d+,\\d+\\)", with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespaces)
+                guard !body.isEmpty else { continue }
+                result.append(LyricLine(time: Double(start) / 1000, text: body))
+                continue
+            }
+
+            let matches = lrcTimePattern.matches(in: line, range: range)
+            guard !matches.isEmpty, let last = matches.last, let bodyRange = Range(last.range, in: line) else {
+                continue
+            }
             let body = String(line[bodyRange.upperBound...]).trimmingCharacters(in: .whitespaces)
             guard !body.isEmpty else { continue }
 
@@ -77,30 +108,62 @@ enum LyricParser {
         return result.sorted { $0.time < $1.time }
     }
 
-    private static func parseYRC(_ text: String) -> [LyricLine] {
-        var result = [LyricLine]()
+    private static func parseJSONLine(_ line: String) -> LyricLine? {
+        guard let data = line.data(using: .utf8) else { return nil }
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        guard let time = (object["t"] as? NSNumber)?.doubleValue else { return nil }
+        guard let tokens = object["c"] as? [[String: Any]] else { return nil }
+        let text = tokens
+            .compactMap { $0["tx"] as? String }
+            .joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        return LyricLine(time: time / 1000, text: text)
+    }
+
+    private static func containsYRCContent(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else { continue }
             let range = NSRange(line.startIndex..<line.endIndex, in: line)
-            guard let match = yrcLinePattern.firstMatch(in: line, range: range) else { continue }
-            guard let start = integer(match, group: 1, in: line) else { continue }
-            let body = string(match, group: 3, in: line)
-                .replacingOccurrences(of: "\\(\\d+,\\d+,\\d+\\)", with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespaces)
-            guard !body.isEmpty else { continue }
-            result.append(LyricLine(time: Double(start) / 1000, text: body))
+            if yrcLinePattern.firstMatch(in: line, range: range) != nil {
+                return true
+            }
         }
-        return result.sorted { $0.time < $1.time }
+        return false
     }
 
     private static func translationMap(from text: String?) -> [Int: String] {
         guard let text, !text.isEmpty else { return [:] }
         var result = [Int: String]()
-        for line in parseLRC(text) {
-            result[Int((line.time * 1000).rounded())] = line.text
+        for line in parseAny(text) {
+            let value = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            result[Int((line.time * 1000).rounded())] = value
         }
         return result
+    }
+
+    private static func translation(at time: Int, keys: [Int], values: [Int: String]) -> String? {
+        if let exact = values[time], !exact.isEmpty {
+            return exact
+        }
+        var closest: Int?
+        var closestDistance = Int.max
+        for key in keys {
+            let distance = abs(key - time)
+            if distance < closestDistance {
+                closest = key
+                closestDistance = distance
+            }
+            if key > time + 250 { break }
+        }
+        guard closestDistance <= 180, let closest else { return nil }
+        let value = values[closest]
+        return value?.isEmpty == false ? value : nil
     }
 
     private static func integer(_ match: NSTextCheckingResult, group: Int, in text: String) -> Int? {

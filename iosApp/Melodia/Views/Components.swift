@@ -101,6 +101,52 @@ struct PlaylistCard: View {
     }
 }
 
+struct AlbumCard: View {
+    let album: Album
+    var width: CGFloat = 148
+
+    var body: some View {
+        NavigationLink(value: AlbumRoute(album: album)) {
+            VStack(alignment: .leading, spacing: 9) {
+                CoverImage(url: album.coverURL, size: width, cornerRadius: 18)
+                Text(album.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(MelodiaTheme.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(width: width, alignment: .leading)
+                Text(album.artistText)
+                    .font(.caption)
+                    .foregroundStyle(MelodiaTheme.textSecondary)
+                    .lineLimit(1)
+                    .frame(width: width, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct ArtistCard: View {
+    let artist: Artist
+    var width: CGFloat = 128
+
+    var body: some View {
+        NavigationLink(value: ArtistRoute(artist: artist)) {
+            VStack(spacing: 9) {
+                CoverImage(url: artist.avatarURL, size: width, cornerRadius: width / 2)
+                    .clipShape(Circle())
+                Text(artist.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(MelodiaTheme.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(width: width)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct TrackRow: View {
     @EnvironmentObject private var player: PlayerEngine
     let track: Track

@@ -3,8 +3,11 @@ import SwiftUI
 
 struct NowPlayingView: View {
     @EnvironmentObject private var player: PlayerEngine
+    @EnvironmentObject private var appModel: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var showLyrics = false
+    @State private var showComments = false
+    @State private var showQueue = false
     @State private var seekValue: Double?
 
     var body: some View {
@@ -38,11 +41,24 @@ struct NowPlayingView: View {
                     .padding(.top, 18)
 
                 bottomBar
+                    .padding(.horizontal, 24)
                     .padding(.top, 16)
                     .padding(.bottom, 10)
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showComments) {
+            if let track = player.currentTrack {
+                CommentsView(track: track)
+                    .environmentObject(player)
+                    .environmentObject(appModel)
+            }
+        }
+        .sheet(isPresented: $showQueue) {
+            QueueView()
+                .environmentObject(player)
+                .environmentObject(appModel)
+        }
     }
 
     private var artwork: some View {
@@ -57,9 +73,22 @@ struct NowPlayingView: View {
 
     private var lyricsView: some View {
         Group {
-            if player.lyrics.isEmpty {
-                EmptyStateView(icon: "text.quote", title: "暂无歌词", message: "这首歌还没有可用的歌词")
-                    .frame(maxHeight: .infinity)
+            if player.lyricsLoading && player.lyrics.isEmpty {
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .tint(MelodiaTheme.accentSoft)
+                    Text("正在加载歌词…")
+                        .font(.footnote)
+                        .foregroundStyle(MelodiaTheme.textSecondary)
+                }
+                .frame(maxHeight: .infinity)
+            } else if player.lyrics.isEmpty {
+                EmptyStateView(
+                    icon: "text.quote",
+                    title: "暂无歌词",
+                    message: player.lyricsError ?? "这首歌还没有可用的歌词"
+                )
+                .frame(maxHeight: .infinity)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -231,14 +260,79 @@ struct NowPlayingView: View {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "music.note.list")
-                .font(.caption)
-            Text(player.currentTrack?.albumName.isEmpty == false ? player.currentTrack!.albumName : "网易云音乐")
-                .font(.caption)
-                .lineLimit(1)
+        HStack(spacing: 16) {
+            actionButton(
+                icon: isLiked ? "heart.fill" : "heart",
+                active: isLiked,
+                disabled: !appModel.isLoggedIn
+            ) {
+                if let track = player.currentTrack {
+                    Task { await appModel.toggleLike(track) }
+                }
+            }
+
+            actionButton(icon: "bubble.left", active: showComments, disabled: player.currentTrack == nil) {
+                showComments = true
+            }
+
+            actionButton(icon: "list.bullet", active: showQueue, disabled: player.queue.isEmpty) {
+                showQueue = true
+            }
+
+            actionButton(
+                icon: player.playbackMode.icon,
+                active: player.playbackMode != .sequence,
+                disabled: player.queue.isEmpty
+            ) {
+                player.togglePlaybackMode()
+            }
+
+            Spacer(minLength: 4)
+
+            Menu {
+                ForEach(AudioQuality.allCases) { quality in
+                    Button {
+                        player.selectQuality(quality)
+                    } label: {
+                        if quality == player.audioQuality {
+                            Label(quality.title, systemImage: "checkmark")
+                        } else {
+                            Text(quality.title)
+                        }
+                    }
+                }
+            } label: {
+                Text(player.audioQuality.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(MelodiaTheme.textSecondary)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 7)
+                    .background(Color.white.opacity(0.08), in: Capsule())
+            }
         }
-        .foregroundStyle(MelodiaTheme.textTertiary)
+    }
+
+    private var isLiked: Bool {
+        guard let track = player.currentTrack else { return false }
+        return appModel.isTrackLiked(track)
+    }
+
+    private func actionButton(
+        icon: String,
+        active: Bool,
+        disabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(active ? MelodiaTheme.accentSoft : MelodiaTheme.textSecondary)
+                .frame(width: 36, height: 36)
+                .background(Color.white.opacity(active ? 0.12 : 0.07), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.4 : 1)
     }
 
     private var background: some View {

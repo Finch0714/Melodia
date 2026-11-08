@@ -2,6 +2,60 @@ import AVFoundation
 import Combine
 import MediaPlayer
 
+enum PlaybackMode: String, CaseIterable, Identifiable {
+    case sequence
+    case repeatAll
+    case repeatOne
+    case shuffle
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .sequence: return "顺序播放"
+        case .repeatAll: return "列表循环"
+        case .repeatOne: return "单曲循环"
+        case .shuffle: return "随机播放"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .sequence: return "arrow.right"
+        case .repeatAll: return "repeat"
+        case .repeatOne: return "repeat.1"
+        case .shuffle: return "shuffle"
+        }
+    }
+
+    var next: PlaybackMode {
+        switch self {
+        case .sequence: return .repeatAll
+        case .repeatAll: return .repeatOne
+        case .repeatOne: return .shuffle
+        case .shuffle: return .sequence
+        }
+    }
+}
+
+enum AudioQuality: String, CaseIterable, Identifiable {
+    case standard
+    case higher
+    case exhigh
+    case lossless
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .standard: return "标准"
+        case .higher: return "较高"
+        case .exhigh: return "极高"
+        case .lossless: return "无损"
+        }
+    }
+}
+
 @MainActor
 final class PlayerEngine: ObservableObject {
     @Published private(set) var currentTrack: Track?
@@ -13,6 +67,10 @@ final class PlayerEngine: ObservableObject {
     @Published private(set) var duration: Double = 0
     @Published private(set) var lyrics: [LyricLine] = []
     @Published private(set) var currentLyricIndex = -1
+    @Published private(set) var lyricsLoading = false
+    @Published private(set) var lyricsError: String?
+    @Published private(set) var playbackMode: PlaybackMode
+    @Published private(set) var audioQuality: AudioQuality
     @Published var errorMessage: String?
 
     private let player = AVPlayer()
@@ -20,8 +78,12 @@ final class PlayerEngine: ObservableObject {
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var loadTask: Task<Void, Never>?
+    private let modeKey = "melodia.player.mode"
+    private let qualityKey = "melodia.player.quality"
 
     init() {
+        playbackMode = PlaybackMode(rawValue: UserDefaults.standard.string(forKey: modeKey) ?? "") ?? .sequence
+        audioQuality = AudioQuality(rawValue: UserDefaults.standard.string(forKey: qualityKey) ?? "") ?? .exhigh
         configureAudioSession()
         configureRemoteCommands()
         installObservers()
@@ -50,6 +112,12 @@ final class PlayerEngine: ObservableObject {
         start(track: tracks[index])
     }
 
+    func playQueue(at index: Int) {
+        guard queue.indices.contains(index) else { return }
+        currentIndex = index
+        start(track: queue[index])
+    }
+
     func togglePlayPause() {
         if isPlaying {
             pause()
@@ -73,9 +141,7 @@ final class PlayerEngine: ObservableObject {
     }
 
     func next() {
-        guard !queue.isEmpty else { return }
-        currentIndex = (currentIndex + 1) % queue.count
-        start(track: queue[currentIndex])
+        advance(automatic: false)
     }
 
     func previous() {
@@ -84,7 +150,15 @@ final class PlayerEngine: ObservableObject {
             return
         }
         guard !queue.isEmpty else { return }
-        currentIndex = (currentIndex - 1 + queue.count) % queue.count
+        if playbackMode == .shuffle, queue.count > 1 {
+            var index = currentIndex
+            while index == currentIndex {
+                index = Int.random(in: 0..<queue.count)
+            }
+            currentIndex = index
+        } else {
+            currentIndex = (currentIndex - 1 + queue.count) % queue.count
+        }
         start(track: queue[currentIndex])
     }
 
@@ -97,8 +171,55 @@ final class PlayerEngine: ObservableObject {
         updateNowPlayingInfo()
     }
 
+    func togglePlaybackMode() {
+        playbackMode = playbackMode.next
+        UserDefaults.standard.set(playbackMode.rawValue, forKey: modeKey)
+    }
+
+    func selectQuality(_ quality: AudioQuality) {
+        guard quality != audioQuality else { return }
+        audioQuality = quality
+        UserDefaults.standard.set(quality.rawValue, forKey: qualityKey)
+        if let track = currentTrack {
+            start(track: track)
+        }
+    }
+
     func clearError() {
         errorMessage = nil
+    }
+
+    private func advance(automatic: Bool) {
+        guard !queue.isEmpty else { return }
+
+        if automatic, playbackMode == .repeatOne {
+            player.seek(to: .zero)
+            activateAudioSession()
+            player.play()
+            isPlaying = true
+            currentTime = 0
+            updateCurrentLyric()
+            return
+        }
+
+        let nextIndex: Int
+        if playbackMode == .shuffle, queue.count > 1 {
+            var index = currentIndex
+            while index == currentIndex {
+                index = Int.random(in: 0..<queue.count)
+            }
+            nextIndex = index
+        } else if currentIndex + 1 < queue.count {
+            nextIndex = currentIndex + 1
+        } else if automatic, playbackMode == .sequence {
+            pause()
+            return
+        } else {
+            nextIndex = 0
+        }
+
+        currentIndex = nextIndex
+        start(track: queue[nextIndex])
     }
 
     private func start(track: Track) {
@@ -108,6 +229,8 @@ final class PlayerEngine: ObservableObject {
         duration = Double(track.durationMs) / 1000
         lyrics = []
         currentLyricIndex = -1
+        lyricsLoading = true
+        lyricsError = nil
         isLoading = true
         errorMessage = nil
 
@@ -119,7 +242,7 @@ final class PlayerEngine: ObservableObject {
 
     private func load(track: Track) async {
         do {
-            let url = try await client.songURL(id: track.id)
+            let url = try await client.songURL(id: track.id, level: audioQuality.rawValue)
             guard !Task.isCancelled, currentTrack?.id == track.id else { return }
             let item = AVPlayerItem(url: url)
             player.replaceCurrentItem(with: item)
@@ -146,11 +269,15 @@ final class PlayerEngine: ObservableObject {
             let response = try await client.lyrics(songID: songID)
             guard currentTrack?.id == songID else { return }
             lyrics = LyricParser.parse(response: response)
+            lyricsLoading = false
+            lyricsError = lyrics.isEmpty ? "暂无可用歌词" : nil
             updateCurrentLyric()
         } catch {
             guard currentTrack?.id == songID else { return }
             lyrics = []
             currentLyricIndex = -1
+            lyricsLoading = false
+            lyricsError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 
@@ -179,7 +306,7 @@ final class PlayerEngine: ObservableObject {
                 guard let self,
                       let item = notification.object as? AVPlayerItem,
                       item === self.player.currentItem else { return }
-                self.next()
+                self.advance(automatic: true)
             }
         }
     }
@@ -233,25 +360,25 @@ final class PlayerEngine: ObservableObject {
 
         center.playCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                _ = self?.resume()
+                self?.resume()
             }
             return .success
         }
         center.pauseCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                _ = self?.pause()
+                self?.pause()
             }
             return .success
         }
         center.nextTrackCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                _ = self?.next()
+                self?.next()
             }
             return .success
         }
         center.previousTrackCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                _ = self?.previous()
+                self?.previous()
             }
             return .success
         }
@@ -260,7 +387,7 @@ final class PlayerEngine: ObservableObject {
                 return .commandFailed
             }
             Task { @MainActor in
-                _ = self?.seek(to: event.positionTime)
+                self?.seek(to: event.positionTime)
             }
             return .success
         }

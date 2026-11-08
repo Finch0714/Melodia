@@ -18,9 +18,18 @@ final class AppModel: ObservableObject {
     @Published private(set) var isQRLoading = false
     @Published var loginError: String?
 
+    @Published private(set) var libraryPlaylists: [UserPlaylist] = []
+    @Published private(set) var libraryAlbums: [AlbumShelfItem] = []
+    @Published private(set) var libraryCount: UserSubcount?
+    @Published private(set) var likedSongIDs: Set<Int64> = []
+    @Published private(set) var isLoadingLibrary = false
+    @Published var libraryError: String?
+
     private let client = NeteaseClient.shared
     private var qrTask: Task<Void, Never>?
+    private var qrSession: QRLoginSession?
     private var didBootstrap = false
+    private var didLoadLibrary = false
 
     func bootstrap() async {
         guard !didBootstrap else { return }
@@ -55,15 +64,80 @@ final class AppModel: ObservableObject {
     func refreshSession() async {
         isLoggedIn = await client.loggedIn()
         if isLoggedIn {
-            profile = try? await client.account()
+            do {
+                if let loaded = try await client.account() {
+                    profile = loaded
+                } else {
+                    isLoggedIn = false
+                }
+            } catch {
+                // Keep the local session on transient network failures.
+            }
         } else {
             profile = nil
+        }
+        if !isLoggedIn {
+            clearLibrary()
+        }
+    }
+
+    func loadLibrary(force: Bool = false) async {
+        guard isLoggedIn, let uid = profile?.userId else { return }
+        if didLoadLibrary && !force { return }
+        isLoadingLibrary = true
+        libraryError = nil
+
+        do {
+            libraryPlaylists = try await client.userPlaylists(uid: uid)
+        } catch {
+            libraryError = message(for: error)
+        }
+        do {
+            libraryAlbums = try await client.subscribedAlbums()
+        } catch {
+            if libraryError == nil { libraryError = message(for: error) }
+        }
+        do {
+            libraryCount = try await client.userSubcount()
+        } catch {
+            if libraryError == nil { libraryError = message(for: error) }
+        }
+        do {
+            likedSongIDs = Set(try await client.likedSongIDs(uid: uid))
+        } catch {
+            if libraryError == nil { libraryError = message(for: error) }
+        }
+
+        didLoadLibrary = true
+        isLoadingLibrary = false
+    }
+
+    func isTrackLiked(_ track: Track) -> Bool {
+        likedSongIDs.contains(track.id)
+    }
+
+    func toggleLike(_ track: Track) async {
+        guard isLoggedIn, profile != nil else {
+            loginError = "请先登录后再收藏歌曲"
+            return
+        }
+        let shouldLike = !likedSongIDs.contains(track.id)
+        do {
+            try await client.likeSong(trackID: track.id, like: shouldLike)
+            if shouldLike {
+                likedSongIDs.insert(track.id)
+            } else {
+                likedSongIDs.remove(track.id)
+            }
+        } catch {
+            libraryError = message(for: error)
         }
     }
 
     func startQRLogin() {
         qrTask?.cancel()
         qrCodeImage = nil
+        qrSession = nil
         loginError = nil
         qrStatusText = "正在生成二维码…"
         isQRLoading = true
@@ -86,6 +160,7 @@ final class AppModel: ObservableObject {
         profile = nil
         dailySongs = []
         qrCodeImage = nil
+        clearLibrary()
         await loadHome()
     }
 
@@ -96,24 +171,26 @@ final class AppModel: ObservableObject {
         if isLoggedIn {
             qrStatusText = "Cookie 登录成功"
             qrCodeImage = nil
+            await loadLibrary(force: true)
+            await loadHome()
         } else {
-            loginError = "Cookie 中没有找到 MUSIC_U，请确认复制完整"
+            loginError = "Cookie 中没有找到有效的 MUSIC_U，请确认复制完整"
         }
-        await loadHome()
     }
 
     private func runQRLogin() async {
         do {
-            let key = try await client.qrKey()
+            let session = try await client.qrKey()
             guard !Task.isCancelled else { return }
-            qrCodeImage = QRCodeRenderer.image(for: "https://music.163.com/login?codekey=\(key)")
+            qrSession = session
+            qrCodeImage = QRCodeRenderer.image(for: "https://music.163.com/login?codekey=\(session.key)")
             qrStatusText = "请使用网易云音乐 App 扫码"
             isQRLoading = false
 
             for _ in 0..<90 {
                 try await Task.sleep(nanoseconds: 2_000_000_000)
                 guard !Task.isCancelled else { return }
-                let status = try await client.qrStatus(key: key)
+                let status = try await client.qrStatus(session: session)
                 switch status.code {
                 case 800:
                     qrStatusText = "二维码已过期，请重新生成"
@@ -126,6 +203,7 @@ final class AppModel: ObservableObject {
                     qrStatusText = "登录成功"
                     qrCodeImage = nil
                     await refreshSession()
+                    await loadLibrary(force: true)
                     await loadHome()
                     return
                 default:
@@ -139,6 +217,15 @@ final class AppModel: ObservableObject {
             qrStatusText = "二维码生成失败"
             isQRLoading = false
         }
+    }
+
+    private func clearLibrary() {
+        libraryPlaylists = []
+        libraryAlbums = []
+        libraryCount = nil
+        likedSongIDs = []
+        libraryError = nil
+        didLoadLibrary = false
     }
 
     private func message(for error: Error) -> String {
