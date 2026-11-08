@@ -22,8 +22,9 @@ IPA 必须由 Xcode 构建。Windows 上的 xtool 方案需要 WSL、Swift 6.4�
 - Actions 页面：<https://github.com/Finch0714/Melodia/actions/workflows/ios-unsigned.yml>
 - 工作流：`Build unsigned iOS IPA`
 - 产物 artifact：`Melodia-unsigned-ipa`，解压后为 `Melodia-unsigned.ipa`
-- 直接下载：<https://github.com/Finch0714/Melodia/releases/tag/ios-unsigned-2026-11-08>
-- 国内镜像：<https://v4.gh-proxy.org/https://github.com/Finch0714/Melodia/releases/download/ios-unsigned-2026-11-08/Melodia-unsigned.ipa>
+- 当前版本：`1.1.0 (2)`
+- 直接下载：<https://github.com/Finch0714/Melodia/releases/tag/ios-1.1.0-2026-11-08>
+- 国内镜像：<https://v4.gh-proxy.org/https://github.com/Finch0714/Melodia/releases/download/ios-1.1.0-2026-11-08/Melodia-unsigned.ipa>
 
 工作流已经配置为在 `iosApp/**` 变更推送到 `main` 时自动运行，也可以在 Actions 页面手动点击 **Run workflow**。
 
@@ -32,7 +33,7 @@ IPA 必须由 Xcode 构建。Windows 上的 xtool 方案需要 WSL、Swift 6.4�
 - `Payload/Melodia.app/Melodia` 为 arm64 Mach-O 可执行文件
 - Bundle ID 为 `com.lin0721.linmusic`
 - 包内没有 `_CodeSignature` 目录，也没有 `embedded.mobileprovision`
-- 搜索、播放直链和歌词接口均通过 EAPI 实测返回 `code: 200`
+- 搜索、播放直链、歌词、歌手、专辑、评论接口均通过 EAPI / WEAPI 实测返回 `code: 200`
 
 ## 安装方式
 
@@ -45,25 +46,28 @@ IPA 必须由 Xcode 构建。Windows 上的 xtool 方案需要 WSL、Swift 6.4�
 
 ## 当前功能
 
-- 网易云个性化推荐歌单与排行榜
-- 歌曲搜索
-- 歌单详情与批量补齐歌曲
-- EAPI / WeAPI 请求加密
-- AVPlayer 播放、后台播放、上一首/下一首
-- 全屏播放器、进度拖动
-- LRC / YRC 歌词与翻译
-- 网易云扫码登录
+- 桌面客户端 EAPI 扫码登录，修复“客户端版本过低”
 - 手动 Cookie 登录
-- 登录后每日推荐
+- 网易云个性化推荐歌单、排行榜与每日推荐
+- 搜索：单曲、歌单、专辑、歌手分类，热搜与搜索历史
+- 歌单详情、专辑详情、歌手详情
+- 我的歌单、收藏专辑、我喜欢的音乐、听歌排行
+- 歌曲评论分页浏览
+- AVPlayer 播放、后台播放、上一首/下一首
+- 顺序播放、列表循环、单曲循环、随机播放
+- 标准 / 较高 / 极高 / 无损音质选择
+- 播放队列、红心收藏、评论入口
+- 全屏播放器、进度拖动
+- YRC 逐字歌词、LRC 歌词与翻译
 
 ## 暂未移植
 
 - 本地音乐扫描与标签编辑
-- 插件系统
+- 插件 / LX 音源
 - 听歌识曲
-- 云盘上传
-- 下载管理
-- 网易云评论、播客、动态等完整业务
+- 云盘上传与下载管理
+- MV、播客、电台、动态
+- 评论发表与点赞交互
 - Android/桌面端视觉的逐项复刻
 
 ## 技术结构
@@ -93,7 +97,7 @@ iosApp/
 
 **登录二维码一直等待**
 
-二维码接口依赖网易云 Web 登录状态。可以展开“使用 Cookie 登录”，从浏览器登录 `music.163.com` 后复制包含 `MUSIC_U` 的 Cookie。
+客户端已改用桌面客户端 EAPI 生成二维码。若仍失败，可以展开“使用 Cookie 登录”，从浏览器登录 `music.163.com` 后复制包含 `MUSIC_U` 的 Cookie。
 
 **歌曲无法播放**
 
