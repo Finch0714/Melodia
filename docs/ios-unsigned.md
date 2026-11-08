@@ -23,6 +23,7 @@ IPA 必须由 Xcode 构建。Windows 上的 xtool 方案需要 WSL、Swift 6.4�
 - 工作流：`Build unsigned iOS IPA`
 - 产物 artifact：`Melodia-unsigned-ipa`，解压后为 `Melodia-unsigned.ipa`
 - 直接下载：<https://github.com/Finch0714/Melodia/releases/tag/ios-unsigned-2026-11-08>
+- 国内镜像：<https://v4.gh-proxy.org/https://github.com/Finch0714/Melodia/releases/download/ios-unsigned-2026-11-08/Melodia-unsigned.ipa>
 
 工作流已经配置为在 `iosApp/**` 变更推送到 `main` 时自动运行，也可以在 Actions 页面手动点击 **Run workflow**。
 
