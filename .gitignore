@@ -64,3 +64,10 @@ gradle/gradle-daemon-jvm.properties
 
 # 桌面端播放引擎动态库，本地放置
 desktopApp/native/
+
+# iOS 生成工程与本地构建产物（IPA 由 GitHub Actions 产出）
+iosApp/*.xcodeproj/
+iosApp/.build/
+iosApp/build.log
+Payload/
+*.ipa

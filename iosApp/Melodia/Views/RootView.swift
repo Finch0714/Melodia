@@ -1,0 +1,67 @@
+import SwiftUI
+
+struct RootView: View {
+    @StateObject private var appModel = AppModel()
+    @StateObject private var player = PlayerEngine()
+    @State private var selectedTab = 0
+    @State private var showNowPlaying = false
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            TabView(selection: $selectedTab) {
+                HomeView()
+                    .tabItem {
+                        Label("首页", systemImage: "house.fill")
+                    }
+                    .tag(0)
+
+                SearchView()
+                    .tabItem {
+                        Label("搜索", systemImage: "magnifyingglass")
+                    }
+                    .tag(1)
+
+                AccountView()
+                    .tabItem {
+                        Label("我的", systemImage: "person.crop.circle")
+                    }
+                    .tag(2)
+            }
+            .toolbarBackground(MelodiaTheme.backgroundRaised, for: .tabBar)
+            .toolbarBackground(.visible, for: .tabBar)
+
+            if player.currentTrack != nil && !showNowPlaying {
+                MiniPlayer(showNowPlaying: $showNowPlaying)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 58)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .environmentObject(appModel)
+        .environmentObject(player)
+        .background(MelodiaTheme.background.ignoresSafeArea())
+        .fullScreenCover(isPresented: $showNowPlaying) {
+            NowPlayingView()
+                .environmentObject(player)
+        }
+        .task {
+            await appModel.bootstrap()
+        }
+        .alert("播放失败", isPresented: playerErrorBinding) {
+            Button("好") {
+                player.clearError()
+            }
+        } message: {
+            Text(player.errorMessage ?? "")
+        }
+    }
+
+    private var playerErrorBinding: Binding<Bool> {
+        Binding(
+            get: { player.errorMessage != nil },
+            set: { value in
+                if !value { player.clearError() }
+            }
+        )
+    }
+}

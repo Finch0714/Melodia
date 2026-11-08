@@ -1,0 +1,100 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, dev]
+    paths:
+      - "iosApp/**"
+      - ".github/workflows/ios-unsigned.yml"
+  pull_request:
+    paths:
+      - "iosApp/**"
+      - ".github/workflows/ios-unsigned.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Melodia.ipa
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: iosApp
+        run: xcodegen generate --spec project.yml
+
+      - name: Build unsigned application
+        working-directory: iosApp
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Melodia.xcodeproj \
+            -scheme Melodia \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .build \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            DEVELOPMENT_TEAM='' \
+            PROVISIONING_PROFILE_SPECIFIER='' \
+            build | tee build.log
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP_DIR="iosApp/.build/Build/Products/Release-iphoneos/Melodia.app"
+          if [ ! -d "$APP_DIR" ]; then
+            echo "No Melodia.app bundle found" >&2
+            ls -la iosApp/.build/Build/Products/Release-iphoneos || true
+            exit 1
+          fi
+
+          rm -rf Payload
+          mkdir -p Payload
+          ditto "$APP_DIR" "Payload/Melodia.app"
+          rm -rf "Payload/Melodia.app/_CodeSignature"
+          find "Payload/Melodia.app" -name '*.mobileprovision' -delete
+          ditto -c -k --sequesterRsrc --keepParent Payload Melodia-unsigned.ipa
+
+          echo "Built artifact:"
+          ls -lh Melodia-unsigned.ipa
+          unzip -l Melodia-unsigned.ipa > ipa-contents.txt
+          grep 'Payload/Melodia.app/Melodia' ipa-contents.txt
+          lipo -info Payload/Melodia.app/Melodia
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Melodia-unsigned-ipa
+          path: Melodia-unsigned.ipa
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-log
+          path: iosApp/build.log
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,51 @@
+name: Melodia
+
+options:
+  bundleIdPrefix: com.lin0721
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: "minimal"
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGN_IDENTITY: ""
+    DEVELOPMENT_TEAM: ""
+    ENABLE_BITCODE: "NO"
+
+targets:
+  Melodia:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Melodia
+        excludes:
+          - Info.plist
+          - CryptoBridge.h
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lin0721.linmusic
+        PRODUCT_NAME: Melodia
+        INFOPLIST_FILE: Melodia/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        SWIFT_OBJC_BRIDGING_HEADER: Melodia/CryptoBridge.h
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+
+schemes:
+  Melodia:
+    build:
+      targets:
+        Melodia: all
+    run:
+      config: Debug
+    archive:
+      config: Release
