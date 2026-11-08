@@ -16,6 +16,22 @@ IPA 必须由 Xcode 构建。Windows 上的 xtool 方案需要 WSL、Swift 6.4�
 
 工作流使用 `macos-15` runner、XcodeGen 和 `xcodebuild`，关闭了所有代码签名配置。构建目标架构为 `arm64`，最低系统版本为 iOS 16.0。
 
+## 当前构建
+
+- 仓库：<https://github.com/Finch0714/Melodia>
+- Actions 页面：<https://github.com/Finch0714/Melodia/actions/workflows/ios-unsigned.yml>
+- 工作流：`Build unsigned iOS IPA`
+- 产物 artifact：`Melodia-unsigned-ipa`，解压后为 `Melodia-unsigned.ipa`
+
+工作流已经配置为在 `iosApp/**` 变更推送到 `main` 时自动运行，也可以在 Actions 页面手动点击 **Run workflow**。
+
+已对构建产物做过如下校验：
+
+- `Payload/Melodia.app/Melodia` 为 arm64 Mach-O 可执行文件
+- Bundle ID 为 `com.lin0721.linmusic`
+- 包内没有 `_CodeSignature` 目录，也没有 `embedded.mobileprovision`
+- 搜索、播放直链和歌词接口均通过 EAPI 实测返回 `code: 200`
+
 ## 安装方式
 
 **未签名 IPA 不能直接通过 iTunes、Finder 或 Apple Configurator 安装。** 需要下面任一方式：
