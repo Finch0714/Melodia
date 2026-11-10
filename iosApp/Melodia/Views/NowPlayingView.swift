@@ -516,39 +516,13 @@ struct NowPlayingView: View {
     }
 
     private var actionRow: some View {
-        ZStack {
-            HStack(spacing: 4) {
-                AudioRoutePicker()
-                    .frame(width: 44, height: 44)
-                    .offset(x: -10)
-                    .accessibilityLabel("播放设备")
+        HStack(spacing: 4) {
+            AudioRoutePicker()
+                .frame(width: 44, height: 44)
+                .offset(x: -10)
+                .accessibilityLabel("播放设备")
 
-                Spacer(minLength: 8)
-
-                actionIcon("text.quote", label: "歌词", size: 24) {
-                    showLyrics = true
-                }
-
-                actionIcon("bubble.left", label: "评论", size: 23) {
-                    showComments = true
-                }
-
-                if let shareURL {
-                    ShareLink(item: shareURL) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 24, weight: .medium))
-                            .foregroundStyle(MelodiaTheme.textSecondary)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                actionIcon("list.bullet", label: "队列", size: 28) {
-                    showQueue = true
-                }
-                .disabled(player.queue.isEmpty)
-            }
+            Spacer(minLength: 8)
 
             if showQualityBadge {
                 Menu {
@@ -565,11 +539,40 @@ struct NowPlayingView: View {
                     }
                 } label: {
                     Text(player.audioQuality.title)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(MelodiaTheme.textSecondary)
                         .lineLimit(1)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(Color.white.opacity(0.055), in: Capsule())
                 }
+                .buttonStyle(.plain)
+                .fixedSize()
             }
+
+            actionIcon("text.quote", label: "歌词", size: 24) {
+                showLyrics = true
+            }
+
+            actionIcon("bubble.left", label: "评论", size: 23) {
+                showComments = true
+            }
+
+            if let shareURL {
+                ShareLink(item: shareURL) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(MelodiaTheme.textSecondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            actionIcon("list.bullet", label: "队列", size: 28) {
+                showQueue = true
+            }
+            .disabled(player.queue.isEmpty)
         }
         .padding(.horizontal, 24)
         .frame(minHeight: 44)
@@ -732,7 +735,15 @@ struct NowPlayingView: View {
     }
 
     private var lyricsHeader: some View {
-        ZStack {
+        HStack(spacing: 0) {
+            HStack(spacing: 0) {
+                lyricsHeaderButton(icon: "chevron.down", label: "收起歌词", size: 24) {
+                    showLyrics = false
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(width: 88)
+
             VStack(spacing: 2) {
                 Text(player.currentTrack?.name ?? "歌词")
                     .font(.system(size: 14, weight: .bold))
@@ -746,35 +757,16 @@ struct NowPlayingView: View {
                     .minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 118)
             .allowsHitTesting(false)
 
             HStack(spacing: 0) {
-                Button {
-                    showLyrics = false
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 24, weight: .medium))
-                        .foregroundStyle(MelodiaTheme.textPrimary)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("收起歌词")
-
-                Spacer(minLength: 0)
-
-                Button {
+                lyricsHeaderButton(
+                    icon: "slider.horizontal.3",
+                    label: "歌词设置",
+                    size: 20
+                ) {
                     showLyricSettings = true
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 21, weight: .semibold))
-                        .foregroundStyle(MelodiaTheme.textPrimary)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("歌词设置")
 
                 Menu {
                     Button {
@@ -795,21 +787,49 @@ struct NowPlayingView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(MelodiaTheme.textPrimary)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                    ZStack {
+                        Circle()
+                            .fill(Color.white.opacity(0.09))
+                            .frame(width: 38, height: 38)
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundStyle(MelodiaTheme.textPrimary)
+                    }
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("更多")
             }
-            .zIndex(2)
+            .frame(width: 88)
         }
+        .frame(maxWidth: .infinity)
         .frame(height: 56)
         .padding(.horizontal, 12)
-        .background(Color.black.opacity(0.10))
+        .background(Color.black.opacity(0.14))
         .zIndex(20)
+    }
+
+    private func lyricsHeaderButton(
+        icon: String,
+        label: String,
+        size: CGFloat,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.09))
+                    .frame(width: 38, height: 38)
+                Image(systemName: icon)
+                    .font(.system(size: size, weight: .semibold))
+                    .foregroundStyle(MelodiaTheme.textPrimary)
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     @ViewBuilder
