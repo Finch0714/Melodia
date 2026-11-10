@@ -1,10 +1,12 @@
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @StateObject private var appModel = AppModel()
     @StateObject private var player = PlayerEngine()
     @State private var selectedTab = 0
     @State private var showNowPlaying = false
+    @AppStorage(MelodiaSettings.keepScreenAwakeKey) private var keepScreenAwake = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -26,6 +28,14 @@ struct RootView: View {
                         Label("我的", systemImage: "person.crop.circle")
                     }
                     .tag(2)
+
+                NavigationStack {
+                    SettingsView()
+                }
+                .tabItem {
+                    Label("设置", systemImage: "gearshape.fill")
+                }
+                .tag(3)
             }
             .toolbarBackground(MelodiaTheme.backgroundRaised, for: .tabBar)
             .toolbarBackground(.visible, for: .tabBar)
@@ -47,6 +57,12 @@ struct RootView: View {
         }
         .task {
             await appModel.bootstrap()
+        }
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = keepScreenAwake
+        }
+        .onChange(of: keepScreenAwake) { newValue in
+            UIApplication.shared.isIdleTimerDisabled = newValue
         }
         .alert("播放失败", isPresented: playerErrorBinding) {
             Button("好") {

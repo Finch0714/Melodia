@@ -1,66 +1,70 @@
-import Foundation
 import SwiftUI
 
 struct NowPlayingView: View {
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.dismiss) private var dismiss
+
     @State private var showLyrics = false
     @State private var showComments = false
     @State private var showQueue = false
+    @State private var showLyricSettings = false
     @State private var seekValue: Double?
+
+    @AppStorage(MelodiaSettings.lyricFontSizeKey) private var lyricFontSize = MelodiaSettings.defaultLyricFontSize
+    @AppStorage(MelodiaSettings.lyricLineSpacingKey) private var lyricLineSpacing = MelodiaSettings.defaultLyricLineSpacing
+    @AppStorage(MelodiaSettings.lyricSecondarySpacingKey) private var lyricSecondarySpacing = MelodiaSettings.defaultLyricSecondarySpacing
+    @AppStorage(MelodiaSettings.lyricAlignmentKey) private var lyricAlignmentRaw = LyricAlignmentSetting.center.rawValue
+    @AppStorage(MelodiaSettings.lyricSecondaryModeKey) private var lyricSecondaryModeRaw = LyricSecondaryModeSetting.translation.rawValue
+    @AppStorage(MelodiaSettings.karaokeStyleKey) private var karaokeStyleRaw = KaraokeEffectStyle.melodia.rawValue
+    @AppStorage(MelodiaSettings.karaokeGlowKey) private var karaokeGlow = true
+    @AppStorage(MelodiaSettings.showMiniLyricKey) private var showMiniLyric = true
+    @AppStorage(MelodiaSettings.backgroundStyleKey) private var backgroundStyleRaw = PlayerBackgroundStyle.cover.rawValue
+    @AppStorage(MelodiaSettings.showQualityBadgeKey) private var showQualityBadge = true
+    @AppStorage(MelodiaSettings.coverCornerRadiusKey) private var coverCornerRadius = MelodiaSettings.defaultCoverCornerRadius
+    @AppStorage(MelodiaSettings.wideLandscapeKey) private var wideLandscape = true
+
+    private var lyricAlignment: LyricAlignmentSetting {
+        LyricAlignmentSetting(rawValue: lyricAlignmentRaw) ?? .center
+    }
+
+    private var lyricSecondaryMode: LyricSecondaryModeSetting {
+        LyricSecondaryModeSetting(rawValue: lyricSecondaryModeRaw) ?? .translation
+    }
+
+    private var karaokeStyle: KaraokeEffectStyle {
+        KaraokeEffectStyle(rawValue: karaokeStyleRaw) ?? .melodia
+    }
+
+    private var backgroundStyle: PlayerBackgroundStyle {
+        PlayerBackgroundStyle(rawValue: backgroundStyleRaw) ?? .cover
+    }
 
     var body: some View {
         GeometryReader { geometry in
-            let compact = geometry.size.height < 720
-            let artSide = max(
-                132,
-                min(geometry.size.width - 56, geometry.size.height * (compact ? 0.33 : 0.38))
-            )
+            let size = geometry.size
+            let wide = wideLandscape && size.width > size.height * 1.05
+            let layoutKey = wide ? "wide" : "portrait"
 
             ZStack {
-                background
+                playerBackground(blurred: backgroundStyle == .cover)
+                    .frame(width: size.width, height: size.height)
 
-                VStack(spacing: 0) {
-                    topBar
-                        .padding(.horizontal, 18)
-                        .padding(.top, 6)
-
-                    if showLyrics {
-                        lyricsView
-                            .padding(.horizontal, 20)
-                            .padding(.top, compact ? 6 : 10)
-                            .frame(maxHeight: .infinity)
-                    } else {
-                        Spacer(minLength: compact ? 4 : 10)
-                        artwork(side: artSide, compact: compact)
-                        Spacer(minLength: compact ? 4 : 10)
-                    }
-
-                    trackInfo
-                        .padding(.horizontal, 24)
-                        .padding(.top, compact ? 4 : 8)
-
-                    progressSection
-                        .padding(.horizontal, 24)
-                        .padding(.top, compact ? 8 : 12)
-
-                    controls
-                        .padding(.top, compact ? 8 : 14)
-
-                    bottomBar
-                        .padding(.horizontal, 10)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
-                        .background(
-                            LinearGradient(
-                                colors: [Color.clear, MelodiaTheme.background.opacity(0.92)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
+                if showLyrics {
+                    lyricsScreen(size: size, wide: wide)
+                        .id(layoutKey)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(2)
+                } else {
+                    playerSurface(size: size, wide: wide)
+                        .frame(width: size.width, height: size.height)
+                        .clipped()
+                        .id(layoutKey)
+                        .transition(.opacity)
                 }
             }
+            .frame(width: size.width, height: size.height)
+            .animation(.easeInOut(duration: 0.24), value: showLyrics)
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showComments) {
@@ -75,128 +79,116 @@ struct NowPlayingView: View {
                 .environmentObject(player)
                 .environmentObject(appModel)
         }
+        .sheet(isPresented: $showLyricSettings) {
+            NavigationStack {
+                LyricsSettingsSheet()
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
-    private func artwork(side: CGFloat, compact: Bool) -> some View {
+    private func playerSurface(size: CGSize, wide: Bool) -> some View {
+        Group {
+            if wide {
+                widePlayer(size: size)
+            } else {
+                portraitPlayer(size: size)
+            }
+        }
+    }
+
+    private func portraitPlayer(size: CGSize) -> some View {
+        let coverSide = max(150, min(size.width - 40, min(430, size.height * 0.46)))
+
+        return VStack(spacing: 0) {
+            playerTopBar
+                .padding(.horizontal, 18)
+                .padding(.top, 4)
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    coverArt(side: coverSide)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 18)
+
+                    songInfo
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+
+                    miniLyric
+                        .padding(.horizontal, 20)
+                        .padding(.top, 2)
+
+                    progressSection
+                        .padding(.horizontal, 20)
+                        .padding(.top, 10)
+
+                    playbackControls
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+
+                    actionRow
+                        .padding(.horizontal, 14)
+                        .padding(.top, 10)
+                        .padding(.bottom, 28)
+                }
+                .frame(maxWidth: 620)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollIndicators(.hidden)
+        }
+    }
+
+    private func widePlayer(size: CGSize) -> some View {
+        let availableHeight = max(220, size.height - 66)
+        let coverSide = max(170, min(size.width * 0.40, min(availableHeight - 20, 500)))
+
+        return VStack(spacing: 0) {
+            playerTopBar
+                .padding(.horizontal, 24)
+                .padding(.top, 2)
+
+            HStack(alignment: .center, spacing: 34) {
+                coverArt(side: coverSide)
+                    .frame(maxWidth: .infinity)
+
+                VStack(spacing: 0) {
+                    songInfo
+                    miniLyric
+                        .padding(.top, 2)
+                    progressSection
+                        .padding(.top, 10)
+                    playbackControls
+                        .padding(.top, 6)
+                    actionRow
+                        .padding(.top, 8)
+                }
+                .frame(maxWidth: 560, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 34)
+            .padding(.bottom, 18)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func coverArt(side: CGFloat) -> some View {
         CoverImage(
             url: player.currentTrack?.coverURL,
             size: side,
-            cornerRadius: compact ? 24 : 30
+            cornerRadius: coverCornerRadius
         )
-        .shadow(color: MelodiaTheme.accent.opacity(0.20), radius: 40, y: 18)
-        .frame(maxWidth: .infinity)
+        .shadow(color: MelodiaTheme.accent.opacity(0.22), radius: 34, y: 16)
     }
 
-    private var lyricsView: some View {
-        Group {
-            if player.lyricsLoading && player.lyrics.isEmpty {
-                VStack(spacing: 12) {
-                    ProgressView()
-                        .tint(MelodiaTheme.accentSoft)
-                    Text("正在加载歌词…")
-                        .font(.footnote)
-                        .foregroundStyle(MelodiaTheme.textSecondary)
-                }
-                .frame(maxHeight: .infinity)
-            } else if player.lyrics.isEmpty {
-                EmptyStateView(
-                    icon: "text.quote",
-                    title: "暂无歌词",
-                    message: player.lyricsError ?? "这首歌还没有可用的歌词"
-                )
-                .frame(maxHeight: .infinity)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 19) {
-                            ForEach(Array(player.lyrics.enumerated()), id: \.offset) { index, line in
-                                lyricRow(index: index, line: line)
-                            }
-                        }
-                        .padding(.vertical, 110)
-                    }
-                    .scrollIndicators(.hidden)
-                    .onAppear {
-                        if player.currentLyricIndex >= 0 {
-                            proxy.scrollTo(player.currentLyricIndex, anchor: .center)
-                        }
-                    }
-                    .onChange(of: player.currentLyricIndex) { index in
-                        guard index >= 0 else { return }
-                        withAnimation(.easeOut(duration: 0.35)) {
-                            proxy.scrollTo(index, anchor: .center)
-                        }
-                    }
-                }
-            }
-        }
-        .frame(maxHeight: .infinity)
-    }
-
-    private func lyricRow(index: Int, line: LyricLine) -> some View {
-        let isCurrent = index == player.currentLyricIndex
-        let nextTime = index + 1 < player.lyrics.count
-            ? player.lyrics[index + 1].time
-            : line.time + 6
-
-        return VStack(spacing: 5) {
-            if isCurrent {
-                LyricFlowLine(
-                    line: line,
-                    nextLineTime: nextTime,
-                    playbackTime: player.currentTime,
-                    isPlaying: player.isPlaying,
-                    fontSize: 21
-                )
-            } else {
-                Text(line.text)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(
-                        index < player.currentLyricIndex
-                            ? MelodiaTheme.textTertiary
-                            : MelodiaTheme.textSecondary
-                    )
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if let translation = line.translation, !translation.isEmpty {
-                Text(translation)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(
-                        isCurrent
-                            ? MelodiaTheme.accentSoft.opacity(0.82)
-                            : MelodiaTheme.textTertiary
-                    )
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .scaleEffect(isCurrent ? 1.035 : 1)
-        .opacity(lineOpacity(index: index))
-        .animation(.easeOut(duration: 0.28), value: player.currentLyricIndex)
-        .id(index)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            player.seek(to: line.time)
-        }
-    }
-
-    private func lineOpacity(index: Int) -> Double {
-        guard player.currentLyricIndex >= 0 else { return 0.58 }
-        let distance = abs(index - player.currentLyricIndex)
-        if distance == 0 { return 1 }
-        return max(0.22, 0.58 - Double(distance - 1) * 0.055)
-    }
-
-    private var topBar: some View {
-        HStack(spacing: 10) {
+    private var playerTopBar: some View {
+        HStack(spacing: 12) {
             Button {
                 dismiss()
             } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(MelodiaTheme.textPrimary)
                     .frame(width: 38, height: 38)
                     .background(Color.white.opacity(0.08), in: Circle())
@@ -207,79 +199,146 @@ struct NowPlayingView: View {
 
             VStack(spacing: 2) {
                 Text("正在播放")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(MelodiaTheme.textSecondary)
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundStyle(MelodiaTheme.textPrimary.opacity(0.60))
                 if !player.queue.isEmpty {
                     Text("\(player.currentIndex + 1) / \(player.queue.count)")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(MelodiaTheme.textTertiary)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(MelodiaTheme.textPrimary.opacity(0.78))
                 }
             }
 
             Spacer(minLength: 4)
 
             Button {
-                withAnimation(.easeInOut(duration: 0.22)) {
-                    showLyrics.toggle()
-                }
+                showLyrics = true
             } label: {
-                Label(
-                    showLyrics ? "封面" : "歌词",
-                    systemImage: showLyrics ? "photo" : "text.quote"
-                )
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(showLyrics ? MelodiaTheme.accentSoft : MelodiaTheme.textPrimary)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 8)
-                .background(Color.white.opacity(0.08), in: Capsule())
+                Image(systemName: "text.quote")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(MelodiaTheme.textPrimary)
+                    .frame(width: 38, height: 38)
+                    .background(Color.white.opacity(0.08), in: Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("歌词")
+
+            Menu {
+                Button {
+                    showLyrics = true
+                } label: {
+                    Label("歌词", systemImage: "text.quote")
+                }
+                Button {
+                    showComments = true
+                } label: {
+                    Label("评论", systemImage: "bubble.left")
+                }
+                Button {
+                    showQueue = true
+                } label: {
+                    Label("播放队列", systemImage: "list.bullet")
+                }
+                Divider()
+                if let shareURL {
+                    ShareLink(item: shareURL) {
+                        Label("分享歌曲", systemImage: "square.and.arrow.up")
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(MelodiaTheme.textPrimary)
+                    .frame(width: 38, height: 38)
+                    .background(Color.white.opacity(0.08), in: Circle())
+            }
+        }
+        .frame(minHeight: 44)
+    }
+
+    private var songInfo: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(player.currentTrack?.name ?? "未在播放")
+                    .font(.system(size: 22, weight: .heavy))
+                    .foregroundStyle(MelodiaTheme.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+
+                Text(player.currentTrack?.artistText ?? "")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(MelodiaTheme.textPrimary.opacity(0.75))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                if let track = player.currentTrack {
+                    Task { await appModel.toggleLike(track) }
+                }
+            } label: {
+                Image(systemName: isLiked ? "heart.fill" : "heart")
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(isLiked ? MelodiaTheme.accentSoft : MelodiaTheme.textPrimary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!appModel.isLoggedIn || player.currentTrack == nil)
         }
     }
 
-    private var trackInfo: some View {
-        VStack(spacing: 4) {
-            Text(player.currentTrack?.name ?? "未在播放")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundStyle(MelodiaTheme.textPrimary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-
-            Text(player.currentTrack?.artistText ?? "")
-                .font(.subheadline)
-                .foregroundStyle(MelodiaTheme.textSecondary)
-                .lineLimit(1)
+    @ViewBuilder
+    private var miniLyric: some View {
+        if showMiniLyric {
+            Button {
+                showLyrics = true
+            } label: {
+                HStack(spacing: 8) {
+                    Text(miniLyricText)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(MelodiaTheme.textPrimary.opacity(miniLyricText == "暂无歌词" ? 0.38 : 0.92))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(player.currentTrack == nil)
         }
+    }
+
+    private var miniLyricText: String {
+        if let lyric = player.currentLyric, !lyric.text.isEmpty {
+            return lyric.text
+        }
+        return player.lyricsLoading ? "正在加载歌词…" : "暂无歌词"
     }
 
     private var progressSection: some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 2) {
             GeometryReader { geometry in
                 let width = max(geometry.size.width, 1)
-                let duration = max(player.duration, 0.001)
-                let rawProgress = (seekValue ?? player.currentTime) / duration
+                let duration = playbackDuration
+                let rawProgress = (seekValue ?? player.currentTime) / max(duration, 0.001)
                 let progress = min(max(rawProgress, 0), 1)
+                let thumbSize: CGFloat = seekValue == nil ? 8 : 14
 
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(Color.white.opacity(0.14))
-                        .frame(height: 5)
+                        .fill(MelodiaTheme.surfaceLight)
+                        .frame(height: 4)
 
                     Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: [MelodiaTheme.accentSoft, MelodiaTheme.accent],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: width * progress, height: 5)
+                        .fill(Color.white)
+                        .frame(width: max(0, width * progress), height: 4)
 
                     Circle()
                         .fill(Color.white)
-                        .frame(width: 12, height: 12)
-                        .shadow(color: MelodiaTheme.accent.opacity(0.55), radius: 5)
-                        .offset(x: max(0, min(width - 12, width * progress - 6)))
+                        .frame(width: thumbSize, height: thumbSize)
+                        .offset(x: max(0, min(width - thumbSize, width * progress - thumbSize / 2)))
                 }
                 .frame(maxHeight: .infinity, alignment: .center)
                 .contentShape(Rectangle())
@@ -296,187 +355,356 @@ struct NowPlayingView: View {
                         }
                 )
             }
-            .frame(height: 24)
+            .frame(height: 28)
 
             HStack {
                 Text(formatTime(seekValue ?? player.currentTime))
                 Spacer()
-                Text(formatTime(player.duration))
+                Text(formatTime(playbackDuration))
             }
-            .font(.system(.caption2, design: .monospaced))
-            .foregroundStyle(MelodiaTheme.textTertiary)
+            .font(.system(size: 13, weight: .regular, design: .monospaced))
+            .foregroundStyle(MelodiaTheme.textSecondary)
         }
     }
 
-    private var controls: some View {
-        HStack(spacing: 38) {
-            Button {
-                player.previous()
-            } label: {
-                Image(systemName: "backward.fill")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(player.hasPrevious ? MelodiaTheme.textPrimary : MelodiaTheme.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .disabled(!player.hasPrevious)
-
-            Button {
-                player.togglePlayPause()
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(MelodiaTheme.accent)
-                        .frame(width: 72, height: 72)
-                        .shadow(color: MelodiaTheme.accent.opacity(0.36), radius: 18, y: 8)
-                    if player.isLoading {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 27, weight: .bold))
-                            .foregroundStyle(.white)
-                            .offset(x: player.isPlaying ? 0 : 2)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(player.currentTrack == nil)
-
-            Button {
-                player.next()
-            } label: {
-                Image(systemName: "forward.fill")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(player.hasNext ? MelodiaTheme.textPrimary : MelodiaTheme.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .disabled(!player.hasNext)
-        }
-    }
-
-    private var bottomBar: some View {
+    private var playbackControls: some View {
         HStack(spacing: 0) {
-            bottomAction(
-                icon: isLiked ? "heart.fill" : "heart",
-                title: "喜欢",
-                active: isLiked,
-                disabled: !appModel.isLoggedIn
-            ) {
-                if let track = player.currentTrack {
-                    Task { await appModel.toggleLike(track) }
-                }
-            }
-
-            bottomAction(
-                icon: "text.quote",
-                title: "歌词",
-                active: showLyrics,
-                disabled: player.currentTrack == nil
-            ) {
-                withAnimation(.easeInOut(duration: 0.22)) {
-                    showLyrics.toggle()
-                }
-            }
-
-            bottomAction(
-                icon: "bubble.left",
-                title: "评论",
-                active: showComments,
-                disabled: player.currentTrack == nil
-            ) {
-                showComments = true
-            }
-
-            bottomAction(
-                icon: "list.bullet",
-                title: "队列",
-                active: showQueue,
+            modeButton(
+                icon: "shuffle",
+                active: player.playbackMode == .shuffle,
                 disabled: player.queue.isEmpty
             ) {
-                showQueue = true
+                player.toggleShuffle()
             }
 
-            bottomAction(
-                icon: player.playbackMode.icon,
-                title: playbackModeTitle,
-                active: player.playbackMode != .sequence,
-                disabled: player.queue.isEmpty
-            ) {
-                player.togglePlaybackMode()
-            }
+            Spacer(minLength: 6)
 
-            Menu {
-                ForEach(AudioQuality.allCases) { quality in
-                    Button {
-                        player.selectQuality(quality)
-                    } label: {
-                        if quality == player.audioQuality {
-                            Label(quality.title, systemImage: "checkmark")
+            HStack(spacing: 18) {
+                transportButton(
+                    icon: "backward.end.fill",
+                    enabled: player.hasPrevious
+                ) {
+                    player.previous()
+                }
+
+                Button {
+                    player.togglePlayPause()
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 68, height: 68)
+                            .shadow(color: Color.black.opacity(0.24), radius: 12, y: 5)
+                        if player.isLoading {
+                            ProgressView()
+                                .tint(Color.black)
                         } else {
-                            Text(quality.title)
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 28, weight: .bold))
+                                .foregroundStyle(Color.black)
+                                .offset(x: player.isPlaying ? 0 : 2)
                         }
                     }
                 }
-            } label: {
-                VStack(spacing: 3) {
-                    Text(player.audioQuality.title)
-                        .font(.system(size: 12, weight: .bold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Text("音质")
-                        .font(.system(size: 9.5, weight: .medium))
+                .buttonStyle(.plain)
+                .disabled(player.currentTrack == nil)
+
+                transportButton(
+                    icon: "forward.end.fill",
+                    enabled: player.hasNext
+                ) {
+                    player.next()
                 }
-                .foregroundStyle(MelodiaTheme.textSecondary)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .contentShape(Rectangle())
+            }
+
+            Spacer(minLength: 6)
+
+            modeButton(
+                icon: player.playbackMode == .repeatOne ? "repeat.1" : "repeat",
+                active: isRepeating,
+                disabled: player.queue.isEmpty
+            ) {
+                player.toggleRepeat()
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
-    private var playbackModeTitle: String {
-        switch player.playbackMode {
-        case .sequence: return "顺序"
-        case .repeatAll: return "循环"
-        case .repeatOne: return "单曲"
-        case .shuffle: return "随机"
-        }
-    }
-
-    private var isLiked: Bool {
-        guard let track = player.currentTrack else { return false }
-        return appModel.isTrackLiked(track)
-    }
-
-    private func bottomAction(
+    private func modeButton(
         icon: String,
-        title: String,
         active: Bool,
         disabled: Bool,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 3) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 9.5, weight: .medium))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(active ? MelodiaTheme.accentSoft : MelodiaTheme.textSecondary)
-            .frame(maxWidth: .infinity)
-            .frame(height: 44)
-            .contentShape(Rectangle())
+            Image(systemName: icon)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(active ? MelodiaTheme.textPrimary : MelodiaTheme.textSecondary)
+                .frame(width: 40, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(disabled)
-        .opacity(disabled ? 0.35 : 1)
     }
 
-    private var background: some View {
+    private func transportButton(
+        icon: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 32, weight: .semibold))
+                .foregroundStyle(enabled ? MelodiaTheme.textPrimary : MelodiaTheme.textTertiary)
+                .frame(width: 44, height: 48)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 8) {
+            AudioRoutePicker()
+                .frame(width: 32, height: 32)
+                .accessibilityLabel("播放设备")
+
+            Spacer(minLength: 6)
+
+            actionIcon("text.quote", label: "歌词", active: showLyrics) {
+                showLyrics = true
+            }
+            actionIcon("bubble.left", label: "评论") {
+                showComments = true
+            }
+
+            if let shareURL {
+                ShareLink(item: shareURL) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(MelodiaTheme.textSecondary)
+                        .frame(width: 36, height: 38)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            actionIcon("list.bullet", label: "队列", active: showQueue) {
+                showQueue = true
+            }
+            .disabled(player.queue.isEmpty)
+
+            if showQualityBadge {
+                Menu {
+                    ForEach(AudioQuality.allCases) { quality in
+                        Button {
+                            player.selectQuality(quality)
+                        } label: {
+                            if quality == player.audioQuality {
+                                Label(quality.title, systemImage: "checkmark")
+                            } else {
+                                Text(quality.title)
+                            }
+                        }
+                    }
+                } label: {
+                    Text(player.audioQuality.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(MelodiaTheme.textSecondary)
+                        .frame(minWidth: 34, minHeight: 38)
+                }
+            }
+        }
+        .frame(minHeight: 44)
+    }
+
+    private func actionIcon(
+        _ icon: String,
+        label: String,
+        active: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(active ? MelodiaTheme.accentSoft : MelodiaTheme.textSecondary)
+                .frame(width: 36, height: 38)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func lyricsScreen(size: CGSize, wide: Bool) -> some View {
+        ZStack {
+            playerBackground(blurred: true)
+                .overlay(Color.black.opacity(0.30))
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Button {
+                        showLyrics = false
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(MelodiaTheme.textPrimary)
+                            .frame(width: 38, height: 38)
+                            .background(Color.white.opacity(0.08), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer(minLength: 4)
+
+                    VStack(spacing: 2) {
+                        Text(player.currentTrack?.name ?? "歌词")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(MelodiaTheme.textPrimary)
+                            .lineLimit(1)
+                        Text(player.currentTrack?.artistText ?? "")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(MelodiaTheme.textSecondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 4)
+
+                    Button {
+                        showLyricSettings = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(MelodiaTheme.textPrimary)
+                            .frame(width: 38, height: 38)
+                            .background(Color.white.opacity(0.08), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 4)
+
+                lyricsScrollContent(size: size, wide: wide)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func lyricsScrollContent(size: CGSize, wide: Bool) -> some View {
+        if player.lyricsLoading && player.lyrics.isEmpty {
+            VStack(spacing: 12) {
+                ProgressView()
+                    .tint(MelodiaTheme.accentSoft)
+                Text("正在加载歌词…")
+                    .font(.footnote)
+                    .foregroundStyle(MelodiaTheme.textSecondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if player.lyrics.isEmpty {
+            EmptyStateView(
+                icon: "text.quote",
+                title: "暂无歌词",
+                message: player.lyricsError ?? "这首歌还没有可用的歌词"
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: lyricLineSpacing) {
+                        ForEach(Array(player.lyrics.enumerated()), id: \.offset) { index, line in
+                            lyricRow(index: index, line: line)
+                        }
+                    }
+                    .frame(maxWidth: 760)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 26)
+                    .padding(.vertical, max(120, size.height * (wide ? 0.34 : 0.42)))
+                }
+                .scrollIndicators(.hidden)
+                .onAppear {
+                    scrollToCurrentLyric(proxy: proxy, animated: false)
+                }
+                .onChange(of: player.currentLyricIndex) { _ in
+                    scrollToCurrentLyric(proxy: proxy, animated: true)
+                }
+            }
+        }
+    }
+
+    private func lyricRow(index: Int, line: LyricLine) -> some View {
+        let isCurrent = index == player.currentLyricIndex
+        let nextTime = index + 1 < player.lyrics.count
+            ? player.lyrics[index + 1].time
+            : line.time + 6
+        let showsSecondary = lyricSecondaryMode == .translation
+            && line.translation?.isEmpty == false
+
+        return VStack(spacing: lyricSecondarySpacing) {
+            if isCurrent {
+                LyricFlowLine(
+                    line: line,
+                    nextLineTime: nextTime,
+                    playbackTime: player.currentTime,
+                    isPlaying: player.isPlaying,
+                    fontSize: lyricFontSize,
+                    alignment: lyricAlignment,
+                    style: karaokeStyle,
+                    glowEnabled: karaokeGlow
+                )
+            } else {
+                Text(line.text)
+                    .font(.system(size: max(16, lyricFontSize - 5), weight: .semibold))
+                    .foregroundStyle(index < player.currentLyricIndex ? MelodiaTheme.textTertiary : MelodiaTheme.textSecondary)
+                    .multilineTextAlignment(lyricAlignment.textAlignment)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: lyricAlignment.frameAlignment)
+            }
+
+            if showsSecondary, let translation = line.translation {
+                Text(translation)
+                    .font(.system(size: max(12, lyricFontSize - 9), weight: .medium))
+                    .foregroundStyle(isCurrent ? MelodiaTheme.accentSoft.opacity(0.82) : MelodiaTheme.textTertiary)
+                    .multilineTextAlignment(lyricAlignment.textAlignment)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: lyricAlignment.frameAlignment)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: lyricAlignment.frameAlignment)
+        .scaleEffect(isCurrent ? 1.04 : 1)
+        .opacity(lineOpacity(index: index))
+        .animation(.easeOut(duration: 0.26), value: player.currentLyricIndex)
+        .id(index)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            player.seek(to: line.time)
+        }
+    }
+
+    private func scrollToCurrentLyric(proxy: ScrollViewProxy, animated: Bool) {
+        let index = player.currentLyricIndex
+        guard index >= 0, index < player.lyrics.count else { return }
+        if animated {
+            withAnimation(.easeOut(duration: 0.35)) {
+                proxy.scrollTo(index, anchor: .center)
+            }
+        } else {
+            proxy.scrollTo(index, anchor: .center)
+        }
+    }
+
+    private func lineOpacity(index: Int) -> Double {
+        guard player.currentLyricIndex >= 0 else { return 0.58 }
+        let distance = abs(index - player.currentLyricIndex)
+        if distance == 0 { return 1 }
+        if distance == 1 { return 0.65 }
+        if distance == 2 { return 0.45 }
+        return 0.28
+    }
+
+    private func playerBackground(blurred: Bool) -> some View {
         ZStack {
             MelodiaTheme.background
-            if let url = player.currentTrack?.coverURL {
+
+            if blurred, let url = player.currentTrack?.coverURL {
                 AsyncImage(url: url) { image in
                     image
                         .resizable()
@@ -484,16 +712,45 @@ struct NowPlayingView: View {
                 } placeholder: {
                     Color.clear
                 }
-                .blur(radius: 75)
-                .opacity(0.34)
+                .blur(radius: 70)
+                .opacity(0.42)
             }
+
             LinearGradient(
-                colors: [Color.black.opacity(0.08), Color.black.opacity(0.72)],
+                colors: [
+                    Color.black.opacity(blurred ? 0.10 : 0.02),
+                    MelodiaTheme.background.opacity(blurred ? 0.58 : 1.0),
+                    MelodiaTheme.background.opacity(0.92)
+                ],
                 startPoint: .top,
                 endPoint: .bottom
             )
         }
         .ignoresSafeArea()
+    }
+
+    private var playbackDuration: Double {
+        if player.duration.isFinite, player.duration > 0 {
+            return player.duration
+        }
+        if let milliseconds = player.currentTrack?.durationMs, milliseconds > 0 {
+            return Double(milliseconds) / 1000
+        }
+        return 0.001
+    }
+
+    private var isLiked: Bool {
+        guard let track = player.currentTrack else { return false }
+        return appModel.isTrackLiked(track)
+    }
+
+    private var isRepeating: Bool {
+        player.playbackMode == .repeatAll || player.playbackMode == .repeatOne
+    }
+
+    private var shareURL: URL? {
+        guard let track = player.currentTrack else { return nil }
+        return URL(string: "https://music.163.com/song?id=\(track.id)")
     }
 
     private func formatTime(_ value: Double) -> String {

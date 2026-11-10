@@ -61,7 +61,7 @@ actor NeteaseClient {
         case web
     }
 
-    private let session: URLSession
+    private var session: URLSession
     private let decoder = JSONDecoder()
     private var cookies: String
     private let deviceId = NeteaseCrypto.md5("Apple_iPhone15,2_D73AP")
@@ -74,13 +74,27 @@ actor NeteaseClient {
     private let desktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) NeteaseMusicDesktop/3.1.23.204814 Chrome/91.0.4472.164 Electron/13.6.9 Safari/537.36"
 
     init() {
+        let storedTimeout = UserDefaults.standard.double(forKey: MelodiaSettings.requestTimeoutKey)
+        let timeout = storedTimeout > 0 ? storedTimeout : MelodiaSettings.defaultRequestTimeout
+        session = Self.makeSession(timeout: timeout)
+        cookies = UserDefaults.standard.string(forKey: cookieKey) ?? ""
+    }
+
+    func setRequestTimeout(_ seconds: Double) {
+        let timeout = max(5, seconds)
+        UserDefaults.standard.set(timeout, forKey: MelodiaSettings.requestTimeoutKey)
+        let previous = session
+        session = Self.makeSession(timeout: timeout)
+        previous.finishTasksAndInvalidate()
+    }
+
+    private static func makeSession(timeout: Double) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 45
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = max(timeout * 2, timeout + 10)
         configuration.httpShouldSetCookies = true
         configuration.httpCookieStorage = HTTPCookieStorage.shared
-        session = URLSession(configuration: configuration)
-        cookies = UserDefaults.standard.string(forKey: cookieKey) ?? ""
+        return URLSession(configuration: configuration)
     }
 
     func loggedIn() -> Bool {

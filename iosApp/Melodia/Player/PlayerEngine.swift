@@ -77,6 +77,8 @@ final class PlayerEngine: ObservableObject {
     private let client = NeteaseClient.shared
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    private var interruptionObserver: NSObjectProtocol?
+    private var wasPlayingBeforeInterruption = false
     private var loadTask: Task<Void, Never>?
     private let modeKey = "melodia.player.mode"
     private let qualityKey = "melodia.player.quality"
@@ -172,8 +174,27 @@ final class PlayerEngine: ObservableObject {
     }
 
     func togglePlaybackMode() {
-        playbackMode = playbackMode.next
-        UserDefaults.standard.set(playbackMode.rawValue, forKey: modeKey)
+        setPlaybackMode(playbackMode.next)
+    }
+
+    func setPlaybackMode(_ mode: PlaybackMode) {
+        playbackMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: modeKey)
+    }
+
+    func toggleShuffle() {
+        setPlaybackMode(playbackMode == .shuffle ? .sequence : .shuffle)
+    }
+
+    func toggleRepeat() {
+        switch playbackMode {
+        case .repeatAll:
+            setPlaybackMode(.repeatOne)
+        case .repeatOne:
+            setPlaybackMode(.repeatAll)
+        case .sequence, .shuffle:
+            setPlaybackMode(.repeatAll)
+        }
     }
 
     func selectQuality(_ quality: AudioQuality) {
@@ -182,6 +203,13 @@ final class PlayerEngine: ObservableObject {
         UserDefaults.standard.set(quality.rawValue, forKey: qualityKey)
         if let track = currentTrack {
             start(track: track)
+        }
+    }
+
+    func refreshAudioSession() {
+        configureAudioSession()
+        if isPlaying {
+            activateAudioSession()
         }
     }
 
@@ -309,6 +337,16 @@ final class PlayerEngine: ObservableObject {
                 self.advance(automatic: true)
             }
         }
+
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                self?.handleAudioInterruption(notification)
+            }
+        }
     }
 
     private func updateCurrentLyric() {
@@ -329,7 +367,38 @@ final class PlayerEngine: ObservableObject {
 
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetoothA2DP])
+        let mixesWithOthers = UserDefaults.standard.bool(forKey: MelodiaSettings.mixWithOthersKey)
+        var options: AVAudioSession.CategoryOptions = [.allowAirPlay, .allowBluetoothA2DP]
+        if mixesWithOthers {
+            options.insert(.mixWithOthers)
+        }
+        try? session.setCategory(.playback, mode: .default, options: options)
+    }
+
+    private func handleAudioInterruption(_ notification: Notification) {
+        guard let info = notification.userInfo,
+              let rawType = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+
+        switch type {
+        case .began:
+            wasPlayingBeforeInterruption = isPlaying
+            if isPlaying {
+                pause()
+            }
+        case .ended:
+            let rawOption = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let shouldResume = AVAudioSession.InterruptionOptions(rawValue: rawOption).contains(.shouldResume)
+            let autoResume = UserDefaults.standard.object(forKey: MelodiaSettings.autoResumeKey) == nil
+                ? true
+                : UserDefaults.standard.bool(forKey: MelodiaSettings.autoResumeKey)
+            if shouldResume && autoResume && wasPlayingBeforeInterruption {
+                resume()
+            }
+            wasPlayingBeforeInterruption = false
+        @unknown default:
+            break
+        }
     }
 
     private func activateAudioSession() {
