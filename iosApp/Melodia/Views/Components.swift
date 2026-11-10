@@ -6,37 +6,26 @@ struct CoverImage: View {
     let size: CGFloat
     var cornerRadius: CGFloat = 14
 
+    @Environment(\.displayScale) private var displayScale
+
     var body: some View {
-        Group {
-            if let url {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    case .failure:
-                        placeholder
-                    case .empty:
-                        ZStack {
-                            placeholder
-                            ProgressView()
-                                .tint(.white.opacity(0.75))
-                        }
-                    @unknown default:
-                        placeholder
-                    }
-                }
-            } else {
-                placeholder
-            }
+        CachedRemoteImage(
+            url: url?.melodiaImageURL(pixels: requestPixels),
+            contentMode: .fill
+        ) {
+            placeholder
         }
         .frame(width: size, height: size)
+        .clipped()
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
+    }
+
+    private var requestPixels: Int {
+        Int(min(1024, max(96, ceil(size * displayScale))))
     }
 
     private var placeholder: some View {

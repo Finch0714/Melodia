@@ -22,7 +22,7 @@ enum MelodiaSettings {
     static let defaultLyricFontSize = 22.0
     static let defaultLyricLineSpacing = 24.0
     static let defaultLyricSecondarySpacing = 6.0
-    static let defaultCoverCornerRadius = 28.0
+    static let defaultCoverCornerRadius = 6.0
     static let defaultRequestTimeout = 20.0
 
     static let allKeys = [

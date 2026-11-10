@@ -218,14 +218,14 @@ struct AccountView: View {
     @ViewBuilder
     private var avatar: some View {
         if let url = appModel.profile?.avatarURL {
-            AsyncImage(url: url) { phase in
-                if case .success(let image) = phase {
-                    image.resizable().scaledToFill()
-                } else {
-                    avatarPlaceholder
-                }
+            CachedRemoteImage(
+                url: url.melodiaImageURL(pixels: 246),
+                contentMode: .fill
+            ) {
+                avatarPlaceholder
             }
             .frame(width: 82, height: 82)
+            .clipped()
             .clipShape(Circle())
             .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 1))
         } else {

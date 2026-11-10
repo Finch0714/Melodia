@@ -37,24 +37,41 @@ struct LyricFlowLine: View {
             let time = displayTime(at: context.date)
             let progress = flowProgress(at: time)
             let pulse = 0.5 + 0.5 * sin(time * 3.4)
+            let fallback = fallbackProgress(at: time)
 
-            ZStack(alignment: .center) {
-                Text(line.text)
-                    .font(textFont)
-                    .foregroundStyle(Color.white.opacity(0.30))
-                    .multilineTextAlignment(alignment.textAlignment)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: alignment.frameAlignment)
-                    .shadow(color: lyricTextShadow ? .black.opacity(0.32) : .clear, radius: 2, y: 1)
-
-                if style == .melodia {
-                    melodiaHighlightedText(progress: progress, pulse: pulse)
+            Group {
+                if style == .classic {
+                    ClassicKaraokeText(
+                        text: line.text,
+                        words: line.words,
+                        time: time,
+                        fallbackProgress: fallback,
+                        fontSize: fontSize,
+                        alignment: alignment,
+                        glowEnabled: glowEnabled,
+                        shadowEnabled: lyricTextShadow
+                    )
+                    .frame(maxWidth: .infinity)
+                    .allowsHitTesting(false)
                 } else {
-                    classicHighlightedText(progress: progress)
-                    classicWordBlock(at: time, pulse: pulse)
+                    ZStack(alignment: .center) {
+                        Text(line.text)
+                            .font(textFont)
+                            .foregroundStyle(Color.white.opacity(0.30))
+                            .multilineTextAlignment(alignment.textAlignment)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: alignment.frameAlignment)
+                            .shadow(
+                                color: lyricTextShadow ? .black.opacity(0.32) : .clear,
+                                radius: 2,
+                                y: 1
+                            )
+
+                        melodiaHighlightedText(progress: progress, pulse: pulse)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
             }
-            .frame(maxWidth: .infinity)
             .compositingGroup()
         }
         .onAppear {
@@ -111,54 +128,6 @@ struct LyricFlowLine: View {
         }
     }
 
-    @ViewBuilder
-    private func classicHighlightedText(progress: Double) -> some View {
-        Text(line.text)
-            .font(textFont)
-            .foregroundStyle(Color.white)
-            .multilineTextAlignment(alignment.textAlignment)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: alignment.frameAlignment)
-            .mask(alignment: .leading) {
-                GeometryReader { geometry in
-                    let containerWidth = max(geometry.size.width, 1)
-                    let textWidth = measuredTextWidth(limit: containerWidth)
-                    let originX = textOriginX(containerWidth: containerWidth, textWidth: textWidth)
-                    let front = originX + textWidth * min(max(progress, 0), 1)
-
-                    HStack(spacing: 0) {
-                        Rectangle()
-                            .fill(Color.white)
-                            .frame(width: max(0, front))
-                        Spacer(minLength: 0)
-                    }
-                }
-            }
-            .shadow(color: lyricTextShadow ? .black.opacity(0.35) : .clear, radius: 2, y: 1)
-    }
-
-    @ViewBuilder
-    private func classicWordBlock(at time: Double, pulse: Double) -> some View {
-        if glowEnabled, let block = activeWordBlock(at: time) {
-            GeometryReader { geometry in
-                let containerWidth = max(geometry.size.width, 1)
-                let textWidth = measuredTextWidth(limit: containerWidth)
-                let originX = textOriginX(containerWidth: containerWidth, textWidth: textWidth)
-                let startX = originX + textWidth * block.start
-                let endX = originX + textWidth * block.end
-                let width = max(10, endX - startX)
-                let height = max(20, fontSize * 1.45)
-
-                Rectangle()
-                    .fill(Color.white.opacity(0.22 * block.pulse))
-                    .frame(width: width, height: height)
-                    .position(x: (startX + endX) / 2, y: geometry.size.height / 2)
-                    .blendMode(.plusLighter)
-            }
-            .allowsHitTesting(false)
-        }
-    }
-
     private func syncReference() {
         referenceTime = playbackTime
         referenceDate = Date()
@@ -168,6 +137,11 @@ struct LyricFlowLine: View {
         guard isPlaying else { return max(0, playbackTime) }
         let elapsed = min(max(date.timeIntervalSince(referenceDate), 0), 0.6)
         return max(0, referenceTime + elapsed)
+    }
+
+    private func fallbackProgress(at time: Double) -> Double {
+        let span = max(nextLineTime - line.time, 0.45)
+        return min(max((time - line.time) / span, 0), 1)
     }
 
     private func flowProgress(at time: Double) -> Double {
@@ -189,49 +163,7 @@ struct LyricFlowLine: View {
             }
             return min(max(consumed / Double(total), 0), 1)
         }
-
-        let span = max(nextLineTime - line.time, 0.45)
-        return min(max((time - line.time) / span, 0), 1)
-    }
-
-    private func activeWordBlock(at time: Double) -> (start: Double, end: Double, pulse: Double)? {
-        guard !line.words.isEmpty else { return nil }
-        let weights = line.words.map { max(1, $0.text.count) }
-        let total = max(1, weights.reduce(0, +))
-        var consumed = 0
-
-        for word in line.words {
-            let weight = max(1, word.text.count)
-            let start = Double(consumed) / Double(total)
-            let end = Double(consumed + weight) / Double(total)
-            consumed += weight
-
-            guard time >= word.start, time < word.end else { continue }
-            let duration = max(word.end - word.start, 0.001)
-            let ratio = min(max((time - word.start) / duration, 0), 1)
-            return (start, end, sin(ratio * .pi))
-        }
-        return nil
-    }
-
-    private func measuredTextWidth(limit: CGFloat) -> CGFloat {
-        let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let rect = (line.text as NSString).boundingRect(
-            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
-            options: [.usesFontLeading, .usesLineFragmentOrigin],
-            attributes: attributes,
-            context: nil
-        )
-        return min(limit, max(1, ceil(rect.width)))
-    }
-
-    private func textOriginX(containerWidth: CGFloat, textWidth: CGFloat) -> CGFloat {
-        switch alignment {
-        case .left: return 0
-        case .center: return max(0, (containerWidth - textWidth) / 2)
-        case .right: return max(0, containerWidth - textWidth)
-        }
+        return fallbackProgress(at: time)
     }
 
     @ViewBuilder

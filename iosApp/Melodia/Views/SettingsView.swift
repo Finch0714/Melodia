@@ -49,7 +49,7 @@ struct SettingsView: View {
             } header: {
                 Text("播放与音质")
             } footer: {
-                Text("双栏播放页在 iPhone 横屏和 iPad 横屏启用；关闭后统一使用可滚动的单列布局。同时播放会混入其他应用的音频；自动恢复会在来电或语音助手结束后继续播放。")
+                Text("双栏播放页在 iPad 或大屏横屏启用；关闭后统一使用可滚动的单列布局。同时播放会混入其他应用的音频；自动恢复会在来电或语音助手结束后继续播放。")
             }
 
             Section {
@@ -131,7 +131,7 @@ struct SettingsView: View {
                             .foregroundStyle(MelodiaTheme.textSecondary)
                             .monospacedDigit()
                     }
-                    Slider(value: $coverCornerRadius, in: 8...38, step: 1)
+                    Slider(value: $coverCornerRadius, in: 0...38, step: 1)
                         .tint(MelodiaTheme.accentSoft)
                 }
             } header: {
@@ -160,7 +160,10 @@ struct SettingsView: View {
 
                 Button("清除缓存") {
                     URLCache.shared.removeAllCachedResponses()
-                    updateCacheSize()
+                    Task {
+                        await RemoteImageCache.shared.clear()
+                        updateCacheSize()
+                    }
                     statusMessage = "缓存已清除"
                 }
 
@@ -280,8 +283,11 @@ struct SettingsView: View {
     }
 
     private func updateCacheSize() {
-        let bytes = URLCache.shared.currentDiskUsage + URLCache.shared.currentMemoryUsage
-        cacheSizeText = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        Task {
+            let disk = await RemoteImageCache.shared.diskSize()
+            let bytes = Int64(URLCache.shared.currentDiskUsage + URLCache.shared.currentMemoryUsage) + disk
+            cacheSizeText = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        }
     }
 
     private func resetSettings() {
