@@ -10,6 +10,15 @@ struct NowPlayingView: View {
     @State private var showQueue = false
     @State private var showLyricSettings = false
     @State private var seekValue: Double?
+    @State private var presentedArtist: ArtistRoute?
+    @State private var presentedAlbum: AlbumRoute?
+    @State private var albumDetail: AlbumDetail?
+    @State private var artistDetails: [ArtistDetail] = []
+    @State private var artistAlbums: [ArtistAlbum] = []
+    @State private var previewComments: [CommentItem] = []
+    @State private var previewCommentTotal = 0
+    @State private var previewCommentsLoading = false
+    @State private var similarSongs: [Track] = []
 
     @AppStorage(MelodiaSettings.lyricFontSizeKey) private var lyricFontSize = MelodiaSettings.defaultLyricFontSize
     @AppStorage(MelodiaSettings.lyricLineSpacingKey) private var lyricLineSpacing = MelodiaSettings.defaultLyricLineSpacing
@@ -83,6 +92,27 @@ struct NowPlayingView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(item: $presentedArtist) { route in
+            NavigationStack {
+                ArtistView(route: route)
+                    .environmentObject(player)
+                    .environmentObject(appModel)
+            }
+        }
+        .sheet(item: $presentedAlbum) { route in
+            NavigationStack {
+                AlbumView(route: route)
+                    .environmentObject(player)
+                    .environmentObject(appModel)
+            }
+        }
+        .task(id: player.currentTrack?.id) {
+            guard let track = player.currentTrack else {
+                resetSupplementalData()
+                return
+            }
+            await loadSupplementalData(for: track)
+        }
     }
 
     @ViewBuilder
@@ -110,7 +140,10 @@ struct NowPlayingView: View {
                     .padding(.top, 4)
                 actionRow
                     .padding(.top, 8)
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 8)
+                playerInfoSection
+                    .padding(.top, 8)
+                Color.clear.frame(height: 24)
             }
             .frame(maxWidth: 680)
             .frame(maxWidth: .infinity)
@@ -128,25 +161,30 @@ struct NowPlayingView: View {
                 .padding(.top, 16)
 
             HStack(alignment: .top, spacing: 56) {
-                VStack(spacing: 0) {
-                    Spacer(minLength: 8)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        coverArt(side: coverSide)
+                            .padding(.top, 8)
 
-                    coverArt(side: coverSide)
+                        Spacer()
+                            .frame(height: 16)
 
-                    Spacer()
-                        .frame(height: 16)
+                        songInfo
+                        miniLyric
+                        progressSection
+                            .padding(.top, 8)
+                        playbackControls
+                            .padding(.top, 4)
+                        actionRow
+                            .padding(.top, 8)
+                            .padding(.bottom, 8)
 
-                    songInfo
-                    miniLyric
-                    progressSection
-                        .padding(.top, 8)
-                    playbackControls
-                        .padding(.top, 4)
-                    actionRow
-                        .padding(.top, 8)
-                        .padding(.bottom, 16)
+                        playerInfoSection
+                            .padding(.top, 8)
 
-                    Spacer(minLength: 8)
+                        Color.clear.frame(height: 24)
+                    }
+                    .frame(width: leftWidth)
                 }
                 .frame(width: leftWidth)
                 .frame(maxHeight: .infinity)
@@ -554,6 +592,131 @@ struct NowPlayingView: View {
         .accessibilityLabel(label)
     }
 
+    @ViewBuilder
+    private var playerInfoSection: some View {
+        if let track = player.currentTrack {
+            PlayerInfoCards(
+                track: track,
+                albumDetail: albumDetail,
+                artistDetails: artistDetails,
+                artistAlbums: artistAlbums,
+                previewComments: previewComments,
+                commentsTotal: previewCommentTotal,
+                commentsLoading: previewCommentsLoading,
+                similarSongs: similarSongs,
+                lyrics: player.lyrics,
+                currentLyricIndex: player.currentLyricIndex,
+                lyricsLoading: player.lyricsLoading,
+                qualityTitle: player.audioQuality.title,
+                onOpenLyrics: {
+                    showLyrics = true
+                },
+                onOpenComments: {
+                    showComments = true
+                },
+                onOpenArtist: { route in
+                    presentedArtist = route
+                },
+                onOpenAlbum: { route in
+                    presentedAlbum = route
+                },
+                onPlaySimilar: { selected in
+                    let queue = similarSongs.contains(where: { $0.id == selected.id })
+                        ? similarSongs
+                        : [selected] + similarSongs
+                    player.play(selected, queue: queue)
+                }
+            )
+        }
+    }
+
+    @MainActor
+    private func resetSupplementalData() {
+        albumDetail = nil
+        artistDetails = []
+        artistAlbums = []
+        previewComments = []
+        previewCommentTotal = 0
+        previewCommentsLoading = false
+        similarSongs = []
+    }
+
+    @MainActor
+    private func loadSupplementalData(for track: Track) async {
+        resetSupplementalData()
+        previewCommentsLoading = true
+
+        let albumID = track.album?.id ?? 0
+        let artistIDs = track.artists.map(\.id)
+        let primaryArtistID = artistIDs.first ?? 0
+
+        async let albumRequest = fetchAlbum(id: albumID)
+        async let artistsRequest = fetchArtists(ids: artistIDs)
+        async let albumsRequest = fetchArtistAlbums(artistID: primaryArtistID)
+        async let commentsRequest = fetchPreviewComments(songID: track.id)
+        async let similarRequest = fetchSimilarSongs(id: track.id)
+
+        let album = await albumRequest
+        guard !Task.isCancelled, player.currentTrack?.id == track.id else { return }
+        albumDetail = album
+
+        let artists = await artistsRequest
+        guard !Task.isCancelled, player.currentTrack?.id == track.id else { return }
+        artistDetails = artists
+
+        let albums = await albumsRequest
+        guard !Task.isCancelled, player.currentTrack?.id == track.id else { return }
+        artistAlbums = albums
+
+        let comments = await commentsRequest
+        guard !Task.isCancelled, player.currentTrack?.id == track.id else { return }
+        previewComments = comments.comments
+        previewCommentTotal = comments.total
+        previewCommentsLoading = false
+
+        let similar = await similarRequest
+        guard !Task.isCancelled, player.currentTrack?.id == track.id else { return }
+        similarSongs = similar
+    }
+
+    private func fetchAlbum(id: Int64) async -> AlbumDetail? {
+        guard id > 0 else { return nil }
+        return try? await NeteaseClient.shared.albumDetail(id: id).album
+    }
+
+    private func fetchArtists(ids: [Int64]) async -> [ArtistDetail] {
+        var results: [ArtistDetail] = []
+        for id in ids.prefix(4) {
+            if Task.isCancelled { break }
+            if let detail = try? await NeteaseClient.shared.artistDetail(id: id) {
+                results.append(detail)
+            }
+        }
+        return results
+    }
+
+    private func fetchArtistAlbums(artistID: Int64) async -> [ArtistAlbum] {
+        guard artistID > 0 else { return [] }
+        return (try? await NeteaseClient.shared.artistAlbums(id: artistID, limit: 20)) ?? []
+    }
+
+    private func fetchPreviewComments(songID: Int64) async -> (comments: [CommentItem], total: Int) {
+        do {
+            let data = try await NeteaseClient.shared.comments(
+                threadID: "R_SO_4_\(songID)",
+                page: 1,
+                pageSize: 3,
+                sortType: 99
+            )
+            return (data.comments, data.totalCount)
+        } catch {
+            return ([], 0)
+        }
+    }
+
+    private func fetchSimilarSongs(id: Int64) async -> [Track] {
+        (try? await NeteaseClient.shared.similarSongs(id: id)) ?? []
+    }
     private func lyricsScreen(size: CGSize, wide: Bool) -> some View {
         ZStack {
             playerBackground(blurred: true)
@@ -561,48 +724,92 @@ struct NowPlayingView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    Button {
-                        showLyrics = false
-                    } label: {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 24, weight: .medium))
-                            .foregroundStyle(MelodiaTheme.textPrimary)
-                            .frame(width: 44, height: 44)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer(minLength: 4)
-
-                    VStack(spacing: 2) {
-                        Text(player.currentTrack?.name ?? "歌词")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(MelodiaTheme.textPrimary)
-                            .lineLimit(1)
-                        Text(player.currentTrack?.artistText ?? "")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(MelodiaTheme.textSecondary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 4)
-
-                    Button {
-                        showLyricSettings = true
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 21, weight: .semibold))
-                            .foregroundStyle(MelodiaTheme.textPrimary)
-                            .frame(width: 44, height: 44)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 4)
+                lyricsHeader
 
                 lyricsScrollContent(size: size, wide: wide)
             }
         }
+    }
+
+    private var lyricsHeader: some View {
+        ZStack {
+            VStack(spacing: 2) {
+                Text(player.currentTrack?.name ?? "歌词")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(MelodiaTheme.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
+                Text(player.currentTrack?.artistText ?? "")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(MelodiaTheme.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 118)
+            .allowsHitTesting(false)
+
+            HStack(spacing: 0) {
+                Button {
+                    showLyrics = false
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(MelodiaTheme.textPrimary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("收起歌词")
+
+                Spacer(minLength: 0)
+
+                Button {
+                    showLyricSettings = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(MelodiaTheme.textPrimary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("歌词设置")
+
+                Menu {
+                    Button {
+                        showLyrics = false
+                        showComments = true
+                    } label: {
+                        Label("评论", systemImage: "bubble.left")
+                    }
+                    Button {
+                        showQueue = true
+                    } label: {
+                        Label("播放队列", systemImage: "list.bullet")
+                    }
+                    Divider()
+                    if let shareURL {
+                        ShareLink(item: shareURL) {
+                            Label("分享歌曲", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(MelodiaTheme.textPrimary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("更多")
+            }
+            .zIndex(2)
+        }
+        .frame(height: 56)
+        .padding(.horizontal, 12)
+        .background(Color.black.opacity(0.10))
+        .zIndex(20)
     }
 
     @ViewBuilder
