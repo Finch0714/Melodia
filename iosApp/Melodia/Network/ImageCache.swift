@@ -89,7 +89,7 @@ actor RemoteImageCache {
 
         let directory = diskDirectory
         let task = Task.detached(priority: .userInitiated) {
-            Self.loadImage(url: url, directory: directory)
+            await Self.loadImage(url: url, directory: directory)
         }
         tasks[url] = task
         let image = await task.value
@@ -102,7 +102,7 @@ actor RemoteImageCache {
         return image
     }
 
-    private static func loadImage(url: URL, directory: URL?) -> UIImage? {
+    private static func loadImage(url: URL, directory: URL?) async -> UIImage? {
         let fileURL = directory.map { cacheFile(for: url, in: $0) }
 
         if let fileURL,
@@ -116,7 +116,7 @@ actor RemoteImageCache {
         request.timeoutInterval = 20
         request.setValue("image/*", forHTTPHeaderField: "Accept")
 
-        guard let (data, response) = try? session.data(for: request),
+        guard let (data, response) = try? await session.data(for: request),
               let httpResponse = response as? HTTPURLResponse,
               (200..<300).contains(httpResponse.statusCode),
               let image = UIImage(data: data) else {
