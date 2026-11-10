@@ -349,7 +349,7 @@ struct HomeView: View {
             await startSeedRadio(shuffle: false)
         case .roaming:
             await startSeedRadio(shuffle: true)
-        case .none:
+        case .idle:
             break
         }
     }
