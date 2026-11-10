@@ -1,22 +1,42 @@
 import Foundation
 
+struct LyricWord: Hashable {
+    let start: TimeInterval
+    let duration: TimeInterval
+    let text: String
+
+    var end: TimeInterval { start + duration }
+}
+
 struct LyricLine: Identifiable, Hashable {
     let id: String
     let time: TimeInterval
     let text: String
     let translation: String?
+    let words: [LyricWord]
 
-    init(time: TimeInterval, text: String, translation: String? = nil) {
+    init(
+        time: TimeInterval,
+        text: String,
+        translation: String? = nil,
+        words: [LyricWord] = []
+    ) {
         self.time = time
         self.text = text
         self.translation = translation
+        self.words = words
         self.id = "\(Int(time * 1000))-\(text)"
+    }
+
+    var endTime: TimeInterval {
+        words.last?.end ?? time
     }
 }
 
 enum LyricParser {
     private static let yrcLinePattern = try! NSRegularExpression(pattern: "^\\[(\\d+),(\\d+)\\](.*)$")
     private static let lrcTimePattern = try! NSRegularExpression(pattern: "\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{2,3}))?\\]")
+    private static let yrcWordPattern = try! NSRegularExpression(pattern: "\\((\\d+),(\\d+),\\d+\\)")
 
     static func parse(response: LyricResponse) -> [LyricLine] {
         let yTranslated = response.ytlrc?.lyric?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -46,7 +66,8 @@ enum LyricParser {
                     at: Int((line.time * 1000).rounded()),
                     keys: translationKeys,
                     values: translations
-                )
+                ),
+                words: line.words
             )
         }
     }
@@ -72,11 +93,15 @@ enum LyricParser {
             let range = NSRange(line.startIndex..<line.endIndex, in: line)
             if let yrcMatch = yrcLinePattern.firstMatch(in: line, range: range) {
                 guard let start = integer(yrcMatch, group: 1, in: line) else { continue }
-                let body = string(yrcMatch, group: 3, in: line)
-                    .replacingOccurrences(of: "\\(\\d+,\\d+,\\d+\\)", with: "", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespaces)
-                guard !body.isEmpty else { continue }
-                result.append(LyricLine(time: Double(start) / 1000, text: body))
+                let rawBody = string(yrcMatch, group: 3, in: line)
+                let words = yrcWords(in: rawBody)
+                let body = words.isEmpty
+                    ? rawBody
+                        .replacingOccurrences(of: "\\(\\d+,\\d+,\\d+\\)", with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespaces)
+                    : words.map(\.text).joined()
+                guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                result.append(LyricLine(time: Double(start) / 1000, text: body, words: words))
                 continue
             }
 
@@ -121,6 +146,38 @@ enum LyricParser {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         return LyricLine(time: time / 1000, text: text)
+    }
+
+    private static func yrcWords(in body: String) -> [LyricWord] {
+        let whole = NSRange(body.startIndex..<body.endIndex, in: body)
+        let matches = yrcWordPattern.matches(in: body, range: whole)
+        guard !matches.isEmpty else { return [] }
+
+        var words = [LyricWord]()
+        for (index, match) in matches.enumerated() {
+            guard
+                let start = integer(match, group: 1, in: body),
+                let duration = integer(match, group: 2, in: body)
+            else { continue }
+
+            let textStart = match.range.location + match.range.length
+            let textEnd = index + 1 < matches.count ? matches[index + 1].range.location : whole.length
+            guard textEnd >= textStart else { continue }
+
+            let textRange = NSRange(location: textStart, length: textEnd - textStart)
+            guard let range = Range(textRange, in: body) else { continue }
+            let text = String(body[range])
+            guard !text.isEmpty else { continue }
+
+            words.append(
+                LyricWord(
+                    start: Double(start) / 1000,
+                    duration: Double(duration) / 1000,
+                    text: text
+                )
+            )
+        }
+        return words
     }
 
     private static func containsYRCContent(_ text: String) -> Bool {
