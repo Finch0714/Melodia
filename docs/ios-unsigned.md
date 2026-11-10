@@ -22,20 +22,22 @@ IPA 必须由 Xcode 构建。Windows 上的 xtool 方案需要 WSL、Swift 6.4�
 - Actions 页面：<https://github.com/Finch0714/Melodia/actions/workflows/ios-unsigned.yml>
 - 工作流：`Build unsigned iOS IPA`
 - 产物 artifact：`Melodia-unsigned-ipa`，解压后为 `Melodia-unsigned.ipa`
-- 当前版本：`1.1.1 (3)`
-- 目标提交：`b7beca11`
-- SHA256：`A83526481D3BAFA9B6604AB1D00163053DC5DF0B751FBF9875CCF1B6BDDD147F`
-- 直接下载：<https://github.com/Finch0714/Melodia/releases/tag/ios-1.1.1-2026-11-10>
-- 国内镜像：<https://v4.gh-proxy.org/https://github.com/Finch0714/Melodia/releases/download/ios-1.1.1-2026-11-10/Melodia-unsigned.ipa>
+- 当前版本：`1.2.0 (4)`
+- 目标提交：`8f2c459f`
+- SHA256：`87FAA4F57AE3E23360893EA658E2A5B741F770F2A82662BC19CAE97DBFF9BBC2`
+- 直接下载：<https://github.com/Finch0714/Melodia/releases/tag/ios-1.2.0-2026-11-10>
+- 国内镜像：<https://v4.gh-proxy.org/https://github.com/Finch0714/Melodia/releases/download/ios-1.2.0-2026-11-10/Melodia-unsigned.ipa>
 
 工作流已经配置为在 `iosApp/**` 变更推送到 `main` 时自动运行，也可以在 Actions 页面手动点击 **Run workflow**。
 
-`1.1.1 (3)` 主要修复与增强：
+`1.2.0 (4)` 主要修复与增强：
 
-- 播放页改为按屏幕高度自适应，修复竖屏时进度条被挤压、显示不全的问题
-- 进度条改为全宽可点击 / 拖动样式，扩大触控区域
-- 歌词、评论、队列、喜欢、播放模式、音质改为底部六个常驻入口
-- 歌词页新增 Melodia 风格 YRC 逐字流光：羽化扫光、强调色渐变与呼吸辉光
+- 修复横竖屏来回切换后播放页布局错乱；竖屏进度条不再被控制区挤出屏幕
+- 播放页按 Melodia 原版结构重排：来源栏、封面、歌曲信息、单行歌词、全宽进度条、播放控制、底部操作
+- 歌词页新增“原版光块”逐字模式：当前字词覆盖白色半透明长方形，按 `0.22 × sin` 脉冲呼吸
+- 歌词设置支持字号、行距、主副歌词间距、对齐、副歌词、逐字动效、呼吸光效、文字阴影
+- 设置页补全播放音质、播放模式、常驻入口、横屏双栏、屏幕常亮、同时播放、打断后自动恢复、背景、封面圆角、请求超时、缓存清理与恢复默认
+- 歌词页与评论入口在播放页顶部和底部操作区均可直接进入
 
 已对构建产物做过如下校验：
 
@@ -66,8 +68,9 @@ IPA 必须由 Xcode 构建。Windows 上的 xtool 方案需要 WSL、Swift 6.4�
 - 顺序播放、列表循环、单曲循环、随机播放
 - 标准 / 较高 / 极高 / 无损音质选择
 - 播放队列、红心收藏、歌词 / 评论 / 队列等常驻入口
-- 全屏播放器竖屏自适应、全宽进度条点击与拖动
-- YRC 逐字歌词、Melodia 逐字流光、LRC 歌词与翻译
+- 设置页：音质、播放模式、歌词排版、逐字效果、外观、网络与缓存
+- 全屏播放器横竖屏自适应、全宽进度条点击与拖动
+- YRC 逐字歌词、Melodia 逐字流光 / 原版光块、LRC 歌词与翻译
 
 ## 暂未移植
 
