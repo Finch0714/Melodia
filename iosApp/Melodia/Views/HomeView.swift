@@ -38,13 +38,8 @@ struct HomeView: View {
                         }
 
                         if homeFilter == 2 {
-                            EmptyStateView(
-                                icon: "mic",
-                                title: "播客频道",
-                                message: "播客内容仍在移植中，先切回「全部」继续听歌。"
-                            )
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 60)
+                            PodcastHomeView()
+                                .padding(.top, 2)
                         } else {
                             recentGrid
 

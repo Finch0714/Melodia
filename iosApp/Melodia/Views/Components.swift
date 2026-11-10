@@ -196,6 +196,8 @@ struct MiniPlayer: View {
     @EnvironmentObject private var player: PlayerEngine
     @Binding var showNowPlaying: Bool
 
+    @State private var fillColor = CoverPalette.darkened(CoverPalette.fallback, amount: 0.45)
+
     var body: some View {
         if let track = player.currentTrack {
             HStack(spacing: 12) {
@@ -249,13 +251,31 @@ struct MiniPlayer: View {
                 .disabled(!player.hasNext)
             }
             .padding(8)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(fillColor, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(Color.white.opacity(0.10), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.36), radius: 18, y: 8)
+            .task(id: track.id) {
+                await loadCoverColor(for: track)
+            }
+            .animation(.easeInOut(duration: 0.8), value: fillColor)
         }
+    }
+
+    private func loadCoverColor(for track: Track) async {
+        if let cached = PaletteMemoryCache.shared.color(for: track.id) {
+            fillColor = CoverPalette.darkened(cached, amount: 0.45)
+            return
+        }
+
+        fillColor = CoverPalette.darkened(CoverPalette.fallback, amount: 0.45)
+        guard let url = track.coverURL else { return }
+        guard let base = await CoverPalette.color(for: url) else { return }
+        guard !Task.isCancelled else { return }
+        PaletteMemoryCache.shared.put(base, for: track.id)
+        fillColor = CoverPalette.darkened(base, amount: 0.45)
     }
 }
 

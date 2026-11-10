@@ -525,6 +525,18 @@ actor NeteaseClient {
         return response.data?.yearItems ?? []
     }
 
+    func listenReport(type: String) async throws -> ListenReport {
+        let response: ListenReportEnvelope = try await postWEAPI(
+            "/weapi/content/activity/listen/data/report",
+            payload: ["type": type],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.data?.domain(isWeek: type == "week") ?? .empty
+    }
+
     func messageNotices(time: Int64 = -1, limit: Int = 30) async throws -> MessageNoticesEnvelope {
         let response: MessageNoticesEnvelope = try await postWEAPI(
             "/weapi/msg/notices",
@@ -638,6 +650,113 @@ actor NeteaseClient {
         }
     }
 
+    // MARK: - Podcast
+
+    func podcastCategories() async throws -> [PodcastCategory] {
+        let response: PodcastCategoriesResponse = try await postEAPI(
+            "/eapi/djradio/category/get",
+            payload: [:]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.categories.compactMap { dto in
+            guard dto.id > 0, !dto.name.isEmpty else { return nil }
+            return PodcastCategory(id: dto.id, name: dto.name)
+        }
+    }
+
+    func podcastRecommendPrograms(limit: Int = 20, offset: Int = 0) async throws -> PodcastProgramPage {
+        let response: PodcastRecommendProgramsResponse = try await postEAPI(
+            "/eapi/program/recommend/v1",
+            payload: ["limit": limit, "offset": offset]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return PodcastProgramPage(items: response.programs.compactMap(\.domain), hasMore: response.more)
+    }
+
+    func podcastCategoryGroups() async throws -> [PodcastCategoryGroup] {
+        let response: PodcastCategoryGroupsResponse = try await postEAPI(
+            "/eapi/djradio/home/category/recommend",
+            payload: [:]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.data.compactMap(\.domain)
+    }
+
+    func podcastToplistRadios(limit: Int = 20, offset: Int = 0) async throws -> [PodcastRadio] {
+        let response: PodcastToplistResponse = try await postEAPI(
+            "/eapi/djradio/toplist",
+            payload: ["limit": limit, "offset": offset, "type": 1]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.toplist.compactMap(\.domain)
+    }
+
+    func podcastSubscribedRadios(limit: Int = 30, offset: Int = 0) async throws -> PodcastRadioPage {
+        let response: PodcastSubscribedResponse = try await postEAPI(
+            "/eapi/djradio/get/subed",
+            payload: ["limit": limit, "offset": offset, "total": true]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return PodcastRadioPage(items: response.djRadios.compactMap(\.domain), hasMore: response.hasMore)
+    }
+
+    func podcastCategoryHotRadios(categoryID: Int64, limit: Int = 30, offset: Int = 0) async throws -> PodcastRadioPage {
+        let response: PodcastCategoryHotResponse = try await postEAPI(
+            "/eapi/djradio/hot",
+            payload: ["cateId": categoryID, "limit": limit, "offset": offset]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return PodcastRadioPage(items: response.djRadios.compactMap(\.domain), hasMore: response.hasMore)
+    }
+
+    func podcastRadioDetail(id: Int64) async throws -> PodcastRadioDetail? {
+        let response: PodcastRadioDetailResponse = try await postEAPI(
+            "/eapi/djradio/v2/get",
+            payload: ["id": id]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.data?.domain
+    }
+
+    func podcastRadioPrograms(radioID: Int64, limit: Int = 30, offset: Int = 0, ascending: Bool = false) async throws -> PodcastProgramPage {
+        let response: PodcastProgramsResponse = try await postEAPI(
+            "/eapi/dj/program/byradio",
+            payload: [
+                "radioId": radioID,
+                "limit": limit,
+                "offset": offset,
+                "asc": ascending
+            ]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return PodcastProgramPage(items: response.programs.compactMap(\.domain), hasMore: response.more)
+    }
+
+    func podcastSetSubscribed(radioID: Int64, subscribe: Bool) async throws {
+        let response: PodcastSubscribeResponse = try await postEAPI(
+            subscribe ? "/eapi/djradio/sub" : "/eapi/djradio/unsub",
+            payload: ["id": radioID]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+    }
     func similarSongs(id: Int64) async throws -> [Track] {
         let response: SimilarSongsResponse = try await postEAPI(
             "/eapi/v1/discovery/simiSong",
