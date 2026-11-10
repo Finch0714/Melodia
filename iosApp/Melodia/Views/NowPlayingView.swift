@@ -120,7 +120,7 @@ struct NowPlayingView: View {
 
     private func widePlayer(size: CGSize) -> some View {
         let leftWidth = min(420, max(300, size.width * 0.40))
-        let coverSide = min(leftWidth, max(140, size.height - 300))
+        let coverSide = min(leftWidth, max(120, size.height - 380))
 
         return VStack(spacing: 0) {
             sourceBar
