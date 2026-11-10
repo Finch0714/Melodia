@@ -11,7 +11,7 @@ struct RootView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
-                HomeView()
+                HomeView(onOpenAccount: { selectedTab = 2 })
                     .tabItem {
                         Label("首页", systemImage: "house.fill")
                     }
@@ -30,10 +30,10 @@ struct RootView: View {
                     .tag(2)
 
                 NavigationStack {
-                    SettingsView()
+                    MoreView()
                 }
                 .tabItem {
-                    Label("设置", systemImage: "gearshape.fill")
+                    Label("更多", systemImage: "ellipsis.circle.fill")
                 }
                 .tag(3)
             }

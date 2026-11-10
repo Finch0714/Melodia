@@ -10,6 +10,7 @@ struct PlayerInfoCards: View {
     let commentsTotal: Int
     let commentsLoading: Bool
     let similarSongs: [Track]
+    let songWiki: SongWikiData?
     let lyrics: [LyricLine]
     let currentLyricIndex: Int
     let lyricsLoading: Bool
@@ -50,6 +51,14 @@ struct PlayerInfoCards: View {
                     }
                 }
             )
+
+            if let memory = songWiki?.musicMemory {
+                MusicMemoryCard(memory: memory)
+            }
+
+            if let wiki = songWiki, wiki.hasDetail || !wiki.awards.isEmpty {
+                SongWikiCard(wiki: wiki)
+            }
 
             if let albumDetail,
                let description = albumDetail.description?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -651,6 +660,133 @@ private struct SimilarSongsCard: View {
                                 }
                             }
                             .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct MusicMemoryCard: View {
+    let memory: SongMusicMemory
+
+    var body: some View {
+        PlayerInfoSurface {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(MelodiaTheme.accentSoft)
+                    Text("回忆坐标")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(MelodiaTheme.textPrimary)
+                    Spacer()
+                    if memory.playCount > 0 {
+                        Text("\(memory.playCount) 次")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(MelodiaTheme.accentSoft)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(MelodiaTheme.accent.opacity(0.16), in: Capsule())
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(spacing: 4) {
+                        Text(memory.firstListenDate.isEmpty ? "—" : String(memory.firstListenDate.prefix(10)))
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(MelodiaTheme.textPrimary)
+                        let moment = [memory.season, memory.period].filter { !$0.isEmpty }.joined(separator: " · ")
+                        if !moment.isEmpty {
+                            Text(moment)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(MelodiaTheme.textTertiary)
+                        }
+                    }
+                    .frame(width: 96, alignment: .leading)
+
+                    Text(musicMemoryText(memory))
+                        .font(.system(size: 13))
+                        .foregroundStyle(MelodiaTheme.textSecondary)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    LinearGradient(
+                        colors: [MelodiaTheme.accent.opacity(0.16), Color.white.opacity(0.035)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+
+                Text("回忆由网易云音乐根据你的收听记录生成")
+                    .font(.system(size: 10))
+                    .foregroundStyle(MelodiaTheme.textTertiary)
+            }
+        }
+    }
+}
+
+private struct SongWikiCard: View {
+    let wiki: SongWikiData
+
+    private var rows: [(String, String)] {
+        var result: [(String, String)] = []
+        if !wiki.style.isEmpty { result.append(("曲风", wiki.style)) }
+        if !wiki.language.isEmpty { result.append(("语种", wiki.language)) }
+        if !wiki.bpm.isEmpty { result.append(("BPM", wiki.bpm)) }
+        if !wiki.entertainment.isEmpty { result.append(("听感", wiki.entertainment)) }
+        return result
+    }
+
+    var body: some View {
+        PlayerInfoSurface {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Image(systemName: "book.closed")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(MelodiaTheme.accentSoft)
+                    Text("歌曲百科")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(MelodiaTheme.textPrimary)
+                }
+
+                VStack(spacing: 8) {
+                    ForEach(rows, id: \.0) { row in
+                        HStack(alignment: .top, spacing: 12) {
+                            Text(row.0)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(MelodiaTheme.textTertiary)
+                                .frame(width: 42, alignment: .leading)
+                            Text(row.1)
+                                .font(.system(size: 13))
+                                .foregroundStyle(MelodiaTheme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+
+                if !wiki.awards.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("获奖 \(wiki.awardTotal > 0 ? "\(wiki.awardTotal) 项" : "")")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(MelodiaTheme.textTertiary)
+                        ForEach(wiki.awards.prefix(5), id: \.self) { award in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "rosette")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(MelodiaTheme.accentSoft)
+                                    .padding(.top, 2)
+                                Text(award)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(MelodiaTheme.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
                 }

@@ -73,6 +73,12 @@ actor NeteaseClient {
     private let desktopOSVersion = "Microsoft-Windows-10-Professional-build-10512-64bit"
     private let desktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) NeteaseMusicDesktop/3.1.23.204814 Chrome/91.0.4472.164 Electron/13.6.9 Safari/537.36"
 
+    private var xeapiKeyState: XeapiKeyState?
+    private let xeapiHost = "https://interface3.music.163.com"
+    private let xeapiAppVersion = "9.5.61"
+    private let xeapiOSVersion = "14"
+    private let xeapiUserAgent = "NeteaseMusic/9.5.61.260802021928(9005061);Dalvik/2.1.0 (Linux; U; Android 14; Pixel 7)"
+
     init() {
         let storedTimeout = UserDefaults.standard.double(forKey: MelodiaSettings.requestTimeoutKey)
         let timeout = storedTimeout > 0 ? storedTimeout : MelodiaSettings.defaultRequestTimeout
@@ -410,6 +416,228 @@ actor NeteaseClient {
         return data
     }
 
+    func songWiki(songID: Int64) async throws -> SongWikiData? {
+        let response: SongWikiEnvelope = try await postWEAPI(
+            "/weapi/song/play/about/block/page",
+            payload: ["songId": songID],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.wiki
+    }
+
+    func homeBlockPage(cursor: String = "", refresh: Bool = false) async throws -> HomeBlockPageData {
+        let response: HomeBlockEnvelope = try await postEAPI(
+            "/eapi/homepage/block/page",
+            payload: [
+                "cursor": cursor,
+                "refresh": refresh
+            ]
+        )
+        guard response.code == 200, let data = response.data else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return data
+    }
+
+    func recentSongs() async throws -> [RecentSongRecord] {
+        let response: RecentSongsEnvelope = try await postWEAPI(
+            "/weapi/play-record/song/list",
+            payload: ["limit": 100],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.data?.list ?? []
+    }
+
+    func recentPlaylists() async throws -> [RecentPlaylistRecord] {
+        let response: RecentPlaylistsEnvelope = try await postEAPI(
+            "/eapi/play-record/playlist/list",
+            payload: ["limit": 100]
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.data?.list ?? []
+    }
+
+    func recentAlbums() async throws -> [RecentAlbumRecord] {
+        let response: RecentAlbumsEnvelope = try await postWEAPI(
+            "/weapi/play-record/album/list",
+            payload: ["limit": 100],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.data?.list ?? []
+    }
+
+    func listenTotalDuration() async throws -> Int64 {
+        let response: ListenTotalEnvelope = try await postWEAPI(
+            "/weapi/content/activity/listen/data/total",
+            payload: [:],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.data?.totalDuration ?? 0
+    }
+
+    func listenTodaySongs() async throws -> [ListenTodaySong] {
+        let response: ListenTodayEnvelope = try await postWEAPI(
+            "/weapi/content/activity/listen/data/today/song/play/rank",
+            payload: [:],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.data?.songDTOs ?? []
+    }
+
+    func listenSongRank(type: String) async throws -> ListenRankData {
+        let response: ListenRankEnvelope = try await postWEAPI(
+            "/weapi/content/activity/listen/data/song/play/rank",
+            payload: ["type": type],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.data ?? ListenRankData.empty
+    }
+
+    func listenYearReport() async throws -> [ListenYearItem] {
+        let response: ListenYearEnvelope = try await postWEAPI(
+            "/weapi/content/activity/listen/data/year/report",
+            payload: [:],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response.data?.yearItems ?? []
+    }
+
+    func messageNotices(time: Int64 = -1, limit: Int = 30) async throws -> MessageNoticesEnvelope {
+        let response: MessageNoticesEnvelope = try await postWEAPI(
+            "/weapi/msg/notices",
+            payload: ["time": time, "limit": limit],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response
+    }
+
+    func messageComments(uid: Int64, beforeTime: String = "-1", limit: Int = 30) async throws -> MessageCommentsEnvelope {
+        let response: MessageCommentsEnvelope = try await postWEAPI(
+            "/weapi/v1/user/comments/\(uid)",
+            payload: [
+                "uid": uid,
+                "beforeTime": beforeTime,
+                "limit": limit,
+                "total": "true"
+            ],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response
+    }
+
+    func messageForwards(offset: Int = 0, limit: Int = 30) async throws -> MessageForwardsEnvelope {
+        let response: MessageForwardsEnvelope = try await postWEAPI(
+            "/weapi/forwards/get",
+            payload: [
+                "offset": offset,
+                "limit": limit,
+                "total": "true"
+            ],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return response
+    }
+
+    func commentFloors(
+        parentCommentID: Int64,
+        threadID: String,
+        time: Int64 = -1,
+        limit: Int = 20
+    ) async throws -> CommentFloorData {
+        let response: CommentFloorEnvelope = try await postWEAPI(
+            "/weapi/resource/comment/floor/get",
+            payload: [
+                "parentCommentId": parentCommentID,
+                "threadId": threadID,
+                "time": time,
+                "limit": limit
+            ],
+            includeCookies: true
+        )
+        guard response.code == 200, let data = response.data else {
+            throw NeteaseError.server(response.code, "")
+        }
+        return data
+    }
+
+    func addComment(threadID: String, content: String) async throws -> CommentItem? {
+        let data = try await postXEAPI(
+            "/xeapi/resource/comments/add",
+            fields: [
+                ("threadId", threadID),
+                ("content", content),
+                ("resourceType", "0"),
+                ("expressionPicId", "-1"),
+                ("bubbleId", "-1")
+            ]
+        )
+        let response = try decoder.decode(CommentActionEnvelope.self, from: data)
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, response.message ?? "")
+        }
+        return response.comment
+    }
+
+    func replyComment(threadID: String, commentID: Int64, content: String) async throws -> CommentItem? {
+        let data = try await postXEAPI(
+            "/xeapi/v1/resource/comments/reply",
+            fields: [
+                ("threadId", threadID),
+                ("commentId", "\(commentID)"),
+                ("content", content),
+                ("resourceType", "0")
+            ]
+        )
+        let response = try decoder.decode(CommentActionEnvelope.self, from: data)
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code, response.message ?? "")
+        }
+        return response.comment
+    }
+
+    func likeComment(threadID: String, commentID: Int64, like: Bool) async throws {
+        let response: EmptyResponse = try await postWEAPI(
+            like ? "/weapi/v1/comment/like" : "/weapi/v1/comment/unlike",
+            payload: ["threadId": threadID, "commentId": commentID],
+            includeCookies: true
+        )
+        guard response.code == 200 else {
+            throw NeteaseError.server(response.code ?? 0, "")
+        }
+    }
+
     func similarSongs(id: Int64) async throws -> [Track] {
         let response: SimilarSongsResponse = try await postEAPI(
             "/eapi/v1/discovery/simiSong",
@@ -469,6 +697,131 @@ actor NeteaseClient {
             }
         }
         return result
+    }
+
+    private func postXEAPI(_ path: String, fields: [(String, String)]) async throws -> Data {
+        let state = try await xeapiKey()
+        return try await sendXEAPI(path, fields: fields, state: state)
+    }
+
+    private func xeapiKey() async throws -> XeapiKeyState {
+        if let xeapiKeyState {
+            return xeapiKeyState
+        }
+        let state = try await fetchXeapiKey()
+        xeapiKeyState = state
+        return state
+    }
+
+    private func fetchXeapiKey() async throws -> XeapiKeyState {
+        guard let url = URL(string: "https://interface.music.163.com/api/gorilla/anti/crawler/security/key/get") else {
+            throw NeteaseError.invalidResponse
+        }
+        let nonce = (0..<16).map { _ in String(Int.random(in: 0...9)) }.joined()
+        let timestamp = String(Int64(Date().timeIntervalSince1970 * 1000))
+        let signature = XeapiCrypto.sign(timestamp: timestamp, nonce: nonce)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue(xeapiUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("deviceId=\(deviceId)", forHTTPHeaderField: "Cookie")
+        request.setValue("application/x-www-form-urlencoded;charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = formBody([
+            "appVersion": "9.5.61",
+            "currentKeyVersion": "",
+            "deviceId": deviceId,
+            "nonce": nonce,
+            "os": "android",
+            "requestType": "active",
+            "signature": signature,
+            "t1": "",
+            "t2": "",
+            "timestamp": timestamp,
+            "uid": ""
+        ])
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw NeteaseError.network("获取评论加密密钥失败")
+        }
+        guard
+            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let code = object["code"] as? Int,
+            code == 200,
+            let payload = object["data"] as? [String: Any],
+            let encrypted = payload["encryptedData"] as? String,
+            !encrypted.isEmpty
+        else {
+            throw NeteaseError.network("获取评论加密密钥失败")
+        }
+
+        if let responseSignature = payload["signature"] as? String,
+           !responseSignature.isEmpty,
+           let responseTimestamp = payload["timestamp"] as? String,
+           XeapiCrypto.sign(timestamp: responseTimestamp, nonce: nonce) != responseSignature {
+            throw NeteaseError.network("评论加密密钥校验失败")
+        }
+
+        return try XeapiCrypto.decryptPublicKeyResponse(encrypted)
+    }
+
+    private func sendXEAPI(
+        _ path: String,
+        fields: [(String, String)],
+        state: XeapiKeyState
+    ) async throws -> Data {
+        guard let url = URL(string: xeapiHost + path) else {
+            throw NeteaseError.invalidResponse
+        }
+        let apiPath = path.replacingOccurrences(of: "/xeapi/", with: "/api/")
+        let encrypted = try XeapiCrypto.assembleRequest(path: apiPath, fields: fields, state: state)
+        let buildVersion = String(Int(Date().timeIntervalSince1970))
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.httpBody = formBody([
+            "B": encrypted.b,
+            "S": encrypted.s,
+            "R": encrypted.r
+        ])
+        request.setValue(xeapiUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("ENCRYPTED", forHTTPHeaderField: "X-Client-Enc-State")
+        request.setValue("true", forHTTPHeaderField: "x-aeapi")
+        request.setValue("application/x-www-form-urlencoded;charset=utf-8", forHTTPHeaderField: "content-type")
+        request.setValue(deviceId, forHTTPHeaderField: "x-deviceid")
+        request.setValue("android", forHTTPHeaderField: "x-os")
+        request.setValue(xeapiOSVersion, forHTTPHeaderField: "x-osver")
+        request.setValue(xeapiAppVersion, forHTTPHeaderField: "x-appver")
+        request.setValue(deviceId, forHTTPHeaderField: "x-sdeviceid")
+        request.setValue(buildVersion, forHTTPHeaderField: "x-buildver")
+        if let musicU = cookieValue(named: "MUSIC_U"), !musicU.isEmpty {
+            request.setValue(musicU, forHTTPHeaderField: "x-music-u")
+        }
+
+        var cookieParts = [
+            "os=android",
+            "osver=\(xeapiOSVersion)",
+            "appver=\(xeapiAppVersion)",
+            "deviceId=\(deviceId)",
+            "sDeviceId=\(deviceId)",
+            "buildver=\(buildVersion)"
+        ]
+        let stored = cookies.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !stored.isEmpty {
+            cookieParts.append(stored)
+        }
+        request.setValue(cookieParts.joined(separator: "; "), forHTTPHeaderField: "Cookie")
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw NeteaseError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw NeteaseError.server(http.statusCode, HTTPURLResponse.localizedString(forStatusCode: http.statusCode))
+        }
+        return try XeapiCrypto.decryptResponseBody(data)
     }
 
     private func postEAPI<T: Decodable>(

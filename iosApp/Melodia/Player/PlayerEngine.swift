@@ -270,9 +270,15 @@ final class PlayerEngine: ObservableObject {
 
     private func load(track: Track) async {
         do {
-            let url = try await client.songURL(id: track.id, level: audioQuality.rawValue)
+            let item: AVPlayerItem
+            if let localURL = DownloadStore.findFile(id: track.id) {
+                item = AVPlayerItem(url: localURL)
+            } else {
+                let url = try await client.songURL(id: track.id, level: audioQuality.rawValue)
+                guard !Task.isCancelled, currentTrack?.id == track.id else { return }
+                item = AVPlayerItem(url: url)
+            }
             guard !Task.isCancelled, currentTrack?.id == track.id else { return }
-            let item = AVPlayerItem(url: url)
             player.replaceCurrentItem(with: item)
             activateAudioSession()
             player.play()

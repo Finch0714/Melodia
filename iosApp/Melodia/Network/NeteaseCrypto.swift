@@ -35,6 +35,26 @@ enum NeteaseCrypto {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
+    static func aesECBEncrypt(_ data: Data, key: Data) -> Data? {
+        crypt(
+            data: data,
+            key: key,
+            iv: nil,
+            options: CCOptions(kCCOptionPKCS7Padding) | CCOptions(kCCOptionECBMode),
+            operation: CCOperation(kCCEncrypt)
+        )
+    }
+
+    static func aesECBDecrypt(_ data: Data, key: Data) -> Data? {
+        crypt(
+            data: data,
+            key: key,
+            iv: nil,
+            options: CCOptions(kCCOptionPKCS7Padding) | CCOptions(kCCOptionECBMode),
+            operation: CCOperation(kCCDecrypt)
+        )
+    }
+
     private static func rsaEncrypt(_ text: String) -> String {
         let reversedBytes = Array(String(text.reversed()).utf8)
         let message = BigUInt(reversedBytes)
@@ -56,7 +76,8 @@ enum NeteaseCrypto {
             data: data,
             key: keyData,
             iv: ivData,
-            options: CCOptions(kCCOptionPKCS7Padding)
+            options: CCOptions(kCCOptionPKCS7Padding),
+            operation: CCOperation(kCCEncrypt)
         ) else {
             return ""
         }
@@ -64,16 +85,19 @@ enum NeteaseCrypto {
     }
 
     private static func aesECBHex(text: String, key: String) -> String {
-        let data = Data(text.utf8)
-        let keyData = Data(key.utf8)
-        let options = CCOptions(kCCOptionPKCS7Padding) | CCOptions(kCCOptionECBMode)
-        guard let encrypted = crypt(data: data, key: keyData, iv: nil, options: options) else {
+        guard let encrypted = aesECBEncrypt(Data(text.utf8), key: Data(key.utf8)) else {
             return ""
         }
         return encrypted.map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func crypt(data: Data, key: Data, iv: Data?, options: CCOptions) -> Data? {
+    private static func crypt(
+        data: Data,
+        key: Data,
+        iv: Data?,
+        options: CCOptions,
+        operation: CCOperation
+    ) -> Data? {
         var output = Data(count: data.count + 32)
         var outputLength = 0
         let status: CCCryptorStatus = output.withUnsafeMutableBytes { outputRaw in
@@ -82,7 +106,7 @@ enum NeteaseCrypto {
                     if let iv {
                         return iv.withUnsafeBytes { ivRaw in
                             CCCrypt(
-                                CCOperation(kCCEncrypt),
+                                operation,
                                 CCAlgorithm(kCCAlgorithmAES),
                                 options,
                                 keyRaw.baseAddress,
@@ -97,7 +121,7 @@ enum NeteaseCrypto {
                         }
                     }
                     return CCCrypt(
-                        CCOperation(kCCEncrypt),
+                        operation,
                         CCAlgorithm(kCCAlgorithmAES),
                         options,
                         keyRaw.baseAddress,

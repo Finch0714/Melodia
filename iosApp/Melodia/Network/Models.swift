@@ -82,6 +82,24 @@ struct Track: Decodable, Hashable, Identifiable {
     let durationMs: Int64
     let fee: Int
 
+    static let empty = Track(id: 0, name: "", artists: [], album: nil, durationMs: 0, fee: 0)
+
+    init(
+        id: Int64,
+        name: String,
+        artists: [Artist] = [],
+        album: Album? = nil,
+        durationMs: Int64 = 0,
+        fee: Int = 0
+    ) {
+        self.id = id
+        self.name = name
+        self.artists = artists
+        self.album = album
+        self.durationMs = durationMs
+        self.fee = fee
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id, name, ar, artists, al, album, dt, fee
     }
@@ -641,14 +659,17 @@ struct CommentItem: Decodable, Identifiable {
     let content: String
     let time: Int64
     let timeStr: String?
-    let likedCount: Int
-    let liked: Bool
+    var likedCount: Int
+    var liked: Bool
     let replyCount: Int
+    let beReplied: [RepliedComment]?
+    let parentCommentId: Int64?
 
     var id: Int64 { commentId }
 
     private enum CodingKeys: String, CodingKey {
         case commentId, user, content, time, timeStr, likedCount, liked, replyCount
+        case beReplied, parentCommentId
     }
 
     init(from decoder: Decoder) throws {
@@ -661,6 +682,8 @@ struct CommentItem: Decodable, Identifiable {
         likedCount = (try? container.decode(Int.self, forKey: .likedCount)) ?? 0
         liked = (try? container.decode(Bool.self, forKey: .liked)) ?? false
         replyCount = (try? container.decode(Int.self, forKey: .replyCount)) ?? 0
+        beReplied = try? container.decodeIfPresent([RepliedComment].self, forKey: .beReplied)
+        parentCommentId = try? container.decodeIfPresent(Int64.self, forKey: .parentCommentId)
     }
 }
 

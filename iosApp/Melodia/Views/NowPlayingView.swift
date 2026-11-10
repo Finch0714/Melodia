@@ -19,6 +19,7 @@ struct NowPlayingView: View {
     @State private var previewCommentTotal = 0
     @State private var previewCommentsLoading = false
     @State private var similarSongs: [Track] = []
+    @State private var songWiki: SongWikiData?
 
     @AppStorage(MelodiaSettings.lyricFontSizeKey) private var lyricFontSize = MelodiaSettings.defaultLyricFontSize
     @AppStorage(MelodiaSettings.lyricLineSpacingKey) private var lyricLineSpacing = MelodiaSettings.defaultLyricLineSpacing
@@ -55,13 +56,15 @@ struct NowPlayingView: View {
             let height = max(geometry.size.height, 1)
             let size = CGSize(width: width, height: height)
             let wide = wideLandscape && width >= 720 && height >= 500 && width > height * 1.05
+            let safeTop = max(geometry.safeAreaInsets.top, 0)
+            let safeBottom = max(geometry.safeAreaInsets.bottom, 0)
 
             ZStack {
                 playerBackground(blurred: backgroundStyle == .cover)
                     .frame(width: width, height: height)
 
                 if showLyrics {
-                    lyricsScreen(size: size, wide: wide)
+                    lyricsScreen(size: size, wide: wide, safeTop: safeTop, safeBottom: safeBottom)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(2)
                 } else {
@@ -265,6 +268,16 @@ struct NowPlayingView: View {
                         } label: {
                             Label("播放队列", systemImage: "list.bullet")
                         }
+                        if let track = player.currentTrack {
+                            Button {
+                                DownloadManager.shared.download(track, quality: player.audioQuality)
+                            } label: {
+                                Label(
+                                    DownloadManager.shared.isDownloading(track.id) ? "正在下载…" : "下载",
+                                    systemImage: "arrow.down.circle"
+                                )
+                            }
+                        }
                         Button {
                             showLyricSettings = true
                         } label: {
@@ -313,10 +326,16 @@ struct NowPlayingView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
 
-                Text(player.currentTrack?.artistText ?? "")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(MelodiaTheme.textPrimary.opacity(0.75))
-                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(player.currentTrack?.artistText ?? "")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(MelodiaTheme.textPrimary.opacity(0.75))
+                        .lineLimit(1)
+
+                    if showQualityBadge {
+                        qualityBadge
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -516,52 +535,25 @@ struct NowPlayingView: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 0) {
             AudioRoutePicker()
-                .frame(width: 44, height: 44)
-                .offset(x: -10)
+                .frame(width: 40, height: 44)
                 .accessibilityLabel("播放设备")
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 4)
 
-            if showQualityBadge {
-                Menu {
-                    ForEach(AudioQuality.allCases) { quality in
-                        Button {
-                            player.selectQuality(quality)
-                        } label: {
-                            if quality == player.audioQuality {
-                                Label(quality.title, systemImage: "checkmark")
-                            } else {
-                                Text(quality.title)
-                            }
-                        }
-                    }
-                } label: {
-                    Text(player.audioQuality.title)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(MelodiaTheme.textSecondary)
-                        .lineLimit(1)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(Color.white.opacity(0.055), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .fixedSize()
-            }
-
-            actionIcon("text.quote", label: "歌词", size: 24) {
+            actionIcon("text.quote", label: "歌词", size: 23) {
                 showLyrics = true
             }
 
-            actionIcon("bubble.left", label: "评论", size: 23) {
+            actionIcon("bubble.left", label: "评论", size: 22) {
                 showComments = true
             }
 
             if let shareURL {
                 ShareLink(item: shareURL) {
                     Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 24, weight: .medium))
+                        .font(.system(size: 23, weight: .medium))
                         .foregroundStyle(MelodiaTheme.textSecondary)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
@@ -569,15 +561,42 @@ struct NowPlayingView: View {
                 .buttonStyle(.plain)
             }
 
-            actionIcon("list.bullet", label: "队列", size: 28) {
+            actionIcon("list.bullet", label: "队列", size: 26) {
                 showQueue = true
             }
             .disabled(player.queue.isEmpty)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 18)
         .frame(minHeight: 44)
     }
 
+    private var qualityBadge: some View {
+        Menu {
+            ForEach(AudioQuality.allCases) { quality in
+                Button {
+                    player.selectQuality(quality)
+                } label: {
+                    if quality == player.audioQuality {
+                        Label(quality.title, systemImage: "checkmark")
+                    } else {
+                        Text(quality.title)
+                    }
+                }
+            }
+        } label: {
+            Text(player.audioQuality.title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(MelodiaTheme.textSecondary)
+                .lineLimit(1)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Color.white.opacity(0.07), in: Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(0.08), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel("音质 \(player.audioQuality.title)")
+    }
     private func actionIcon(
         _ icon: String,
         label: String,
@@ -607,6 +626,7 @@ struct NowPlayingView: View {
                 commentsTotal: previewCommentTotal,
                 commentsLoading: previewCommentsLoading,
                 similarSongs: similarSongs,
+                songWiki: songWiki,
                 lyrics: player.lyrics,
                 currentLyricIndex: player.currentLyricIndex,
                 lyricsLoading: player.lyricsLoading,
@@ -642,6 +662,7 @@ struct NowPlayingView: View {
         previewCommentTotal = 0
         previewCommentsLoading = false
         similarSongs = []
+        songWiki = nil
     }
 
     @MainActor
@@ -658,6 +679,11 @@ struct NowPlayingView: View {
         async let albumsRequest = fetchArtistAlbums(artistID: primaryArtistID)
         async let commentsRequest = fetchPreviewComments(songID: track.id)
         async let similarRequest = fetchSimilarSongs(id: track.id)
+        async let wikiRequest = fetchSongWiki(id: track.id)
+
+        let wiki = await wikiRequest
+        guard !Task.isCancelled, player.currentTrack?.id == track.id else { return }
+        songWiki = wiki
 
         let album = await albumRequest
         guard !Task.isCancelled, player.currentTrack?.id == track.id else { return }
@@ -720,118 +746,153 @@ struct NowPlayingView: View {
     private func fetchSimilarSongs(id: Int64) async -> [Track] {
         (try? await NeteaseClient.shared.similarSongs(id: id)) ?? []
     }
-    private func lyricsScreen(size: CGSize, wide: Bool) -> some View {
-        ZStack {
+
+    private func fetchSongWiki(id: Int64) async -> SongWikiData? {
+        guard id > 0 else { return nil }
+        return try? await NeteaseClient.shared.songWiki(songID: id)
+    }
+    private func lyricsScreen(size: CGSize, wide: Bool, safeTop: CGFloat, safeBottom: CGFloat) -> some View {
+        ZStack(alignment: .top) {
             playerBackground(blurred: true)
                 .overlay(Color.black.opacity(0.30))
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                lyricsHeader
+            lyricsScrollContent(size: size, wide: wide)
+                .padding(.top, safeTop + 68)
+                .padding(.bottom, safeBottom)
 
-                lyricsScrollContent(size: size, wide: wide)
-            }
+            LinearGradient(
+                colors: [Color.black.opacity(0.62), Color.black.opacity(0.16), .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: safeTop + 92)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+            .zIndex(99)
+
+            lyricsTopBar
+                .padding(.horizontal, 14)
+                .padding(.top, safeTop + 8)
+                .zIndex(1000)
         }
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard value.startLocation.y < safeTop + 120 else { return }
+                    if value.translation.height > 64 {
+                        showLyrics = false
+                    }
+                }
+        )
     }
 
-    private var lyricsHeader: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: 0) {
-                lyricsHeaderButton(icon: "chevron.down", label: "收起歌词", size: 24) {
-                    showLyrics = false
+    private var lyricsTopBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                showLyrics = false
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 14, weight: .bold))
+                    Text("返回")
+                        .font(.system(size: 13, weight: .semibold))
                 }
-                Spacer(minLength: 0)
+                .foregroundStyle(MelodiaTheme.textPrimary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(Color.black.opacity(0.42), in: Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 1))
+                .contentShape(Capsule())
             }
-            .frame(width: 88)
+            .buttonStyle(.plain)
+            .fixedSize()
+            .accessibilityLabel("返回播放页")
 
-            VStack(spacing: 2) {
+            Spacer(minLength: 8)
+
+            Button {
+                showLyricSettings = true
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 13, weight: .bold))
+                    Text("设置")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundStyle(MelodiaTheme.textPrimary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(Color.black.opacity(0.42), in: Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 1))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .fixedSize()
+            .accessibilityLabel("歌词设置")
+            .accessibilityIdentifier("lyrics.settings.button")
+
+            Menu {
+                Button {
+                    showLyrics = false
+                    showComments = true
+                } label: {
+                    Label("评论", systemImage: "bubble.left")
+                }
+                Button {
+                    showQueue = true
+                } label: {
+                    Label("播放队列", systemImage: "list.bullet")
+                }
+                if let track = player.currentTrack {
+                    Button {
+                        DownloadManager.shared.download(track, quality: player.audioQuality)
+                    } label: {
+                        Label(
+                            DownloadManager.shared.isDownloading(track.id) ? "正在下载…" : "下载",
+                            systemImage: "arrow.down.circle"
+                        )
+                    }
+                }
+                Divider()
+                if let shareURL {
+                    ShareLink(item: shareURL) {
+                        Label("分享歌曲", systemImage: "square.and.arrow.up")
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(MelodiaTheme.textPrimary)
+                    .frame(width: 40, height: 38)
+                    .background(Color.black.opacity(0.42), in: Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.16), lineWidth: 1))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .fixedSize()
+            .accessibilityLabel("更多")
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 44)
+        .overlay(alignment: .center) {
+            VStack(spacing: 1) {
                 Text(player.currentTrack?.name ?? "歌词")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(MelodiaTheme.textPrimary)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.76)
+                    .minimumScaleFactor(0.7)
                 Text(player.currentTrack?.artistText ?? "")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(MelodiaTheme.textSecondary)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
             }
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 132)
             .allowsHitTesting(false)
-
-            HStack(spacing: 0) {
-                lyricsHeaderButton(
-                    icon: "slider.horizontal.3",
-                    label: "歌词设置",
-                    size: 20
-                ) {
-                    showLyricSettings = true
-                }
-
-                Menu {
-                    Button {
-                        showLyrics = false
-                        showComments = true
-                    } label: {
-                        Label("评论", systemImage: "bubble.left")
-                    }
-                    Button {
-                        showQueue = true
-                    } label: {
-                        Label("播放队列", systemImage: "list.bullet")
-                    }
-                    Divider()
-                    if let shareURL {
-                        ShareLink(item: shareURL) {
-                            Label("分享歌曲", systemImage: "square.and.arrow.up")
-                        }
-                    }
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(Color.white.opacity(0.09))
-                            .frame(width: 38, height: 38)
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(MelodiaTheme.textPrimary)
-                    }
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("更多")
-            }
-            .frame(width: 88)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 56)
-        .padding(.horizontal, 12)
-        .background(Color.black.opacity(0.14))
-        .zIndex(20)
     }
-
-    private func lyricsHeaderButton(
-        icon: String,
-        label: String,
-        size: CGFloat,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            ZStack {
-                Circle()
-                    .fill(Color.white.opacity(0.09))
-                    .frame(width: 38, height: 38)
-                Image(systemName: icon)
-                    .font(.system(size: size, weight: .semibold))
-                    .foregroundStyle(MelodiaTheme.textPrimary)
-            }
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-    }
-
     @ViewBuilder
     private func lyricsScrollContent(size: CGSize, wide: Bool) -> some View {
         if player.lyricsLoading && player.lyrics.isEmpty {
