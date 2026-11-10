@@ -189,6 +189,7 @@ enum XeapiCrypto {
 
         var output = Data()
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+        let chunkSize = chunk.count
         var status = Z_OK
 
         data.withUnsafeBytes { rawBuffer in
@@ -200,9 +201,9 @@ enum XeapiCrypto {
                 var produced = 0
                 chunk.withUnsafeMutableBytes { outputBuffer in
                     stream.next_out = outputBuffer.bindMemory(to: Bytef.self).baseAddress
-                    stream.avail_out = uInt(chunk.count)
+                    stream.avail_out = uInt(chunkSize)
                     status = inflate(&stream, Z_NO_FLUSH)
-                    produced = chunk.count - Int(stream.avail_out)
+                    produced = chunkSize - Int(stream.avail_out)
                 }
                 if produced > 0 {
                     output.append(contentsOf: chunk.prefix(produced))
