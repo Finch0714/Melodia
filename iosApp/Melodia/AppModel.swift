@@ -61,12 +61,12 @@ final class AppModel: ObservableObject {
         if let personalizedValue {
             homePlaylists = personalizedValue
         } else {
-            homeError = 首页推荐加载失败，请稍后重试
+            homeError = "首页推荐加载失败，请稍后重试"
         }
         if let rankingsValue {
             toplists = rankingsValue
         } else if homeError == nil {
-            homeError = 排行榜加载失败，请稍后重试
+            homeError = "排行榜加载失败，请稍后重试"
         }
         dailySongs = dailyValue
         isLoadingHome = false
@@ -106,17 +106,17 @@ final class AppModel: ObservableObject {
         if let playlistsValue {
             libraryPlaylists = playlistsValue
         } else {
-            libraryError = 歌单加载失败，请稍后重试
+            libraryError = "歌单加载失败，请稍后重试"
         }
         if let albumsValue {
             libraryAlbums = albumsValue
         } else if libraryError == nil {
-            libraryError = 收藏专辑加载失败，请稍后重试
+            libraryError = "收藏专辑加载失败，请稍后重试"
         }
         if let countValue {
             libraryCount = countValue
         } else if libraryError == nil {
-            libraryError = 账号资料加载失败，请稍后重试
+            libraryError = "账号资料加载失败，请稍后重试"
         }
         didLoadLibrary = true
         isLoadingLibrary = false
@@ -158,7 +158,7 @@ final class AppModel: ObservableObject {
 
     func loadLikedSongs(force: Bool = false) async {
         guard isLoggedIn, let uid = profile?.userId else {
-            likedSongsError = 请先登录后查看喜欢的音乐
+            likedSongsError = "请先登录后查看喜欢的音乐"
             isLoadingLikedSongs = false
             return
         }
