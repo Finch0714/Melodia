@@ -146,44 +146,32 @@ struct UserPlaylistsView: View {
 struct LikedSongsView: View {
     @EnvironmentObject private var appModel: AppModel
     @EnvironmentObject private var player: PlayerEngine
-    @State private var songs: [Track] = []
-    @State private var isLoading = true
-    @State private var errorMessage: String?
-
-    private let client = NeteaseClient.shared
+    private var songs: [Track] { appModel.likedSongs }
+    private var total: Int { max(appModel.likedSongsTotal, songs.count) }
+    private var isInitialLoading: Bool { appModel.isLoadingLikedSongs && songs.isEmpty }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let errorMessage {
-                    ErrorBanner(message: errorMessage)
+            LazyVStack(alignment: .leading, spacing: 16) {
+                if let message = appModel.likedSongsError {
+                    ErrorBanner(message: message)
+                        .melodiaReveal()
                 }
 
-                if isLoading {
+                if isInitialLoading {
                     ProgressView("正在加载喜欢的歌曲…")
                         .tint(MelodiaTheme.accentSoft)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 70)
+                        .melodiaReveal()
                 } else if songs.isEmpty {
                     EmptyStateView(icon: "heart", title: "还没有喜欢的歌曲", message: "在播放页点击红心即可收藏")
+                        .melodiaReveal()
                 } else {
-                    HStack {
-                        SectionTitle(title: "我喜欢的音乐", subtitle: "\(songs.count) 首")
-                        Spacer()
-                        Button {
-                            player.playAll(songs)
-                        } label: {
-                            Label("播放", systemImage: "play.fill")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .background(MelodiaTheme.accent, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    header
+                        .melodiaReveal()
 
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         ForEach(Array(songs.enumerated()), id: \.offset) { index, track in
                             TrackRow(track: track, queue: songs, number: index + 1)
                             if index < songs.count - 1 {
@@ -194,43 +182,60 @@ struct LikedSongsView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .melodiaCard()
+                    .melodiaReveal(offset: 6)
+
+                    if appModel.isBackfillingLikedSongs {
+                        HStack(spacing: 9) {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(MelodiaTheme.accentSoft)
+                            Text("正在加载全部歌曲 \(songs.count) / \(total)")
+                                .font(.caption)
+                                .foregroundStyle(MelodiaTheme.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
                 }
 
                 Color.clear.frame(height: 90)
             }
             .padding(.horizontal, 18)
             .padding(.top, 10)
+            .animation(MelodiaMotion.gentle, value: appModel.isBackfillingLikedSongs)
         }
         .scrollIndicators(.hidden)
         .background(MelodiaTheme.background.ignoresSafeArea())
         .navigationTitle("我喜欢的音乐")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        .refreshable {
+            await appModel.loadLikedSongs(force: true)
+        }
+        .task {
+            await appModel.loadLikedSongs()
+        }
     }
 
-    private func load() async {
-        guard let uid = appModel.profile?.userId else {
-            errorMessage = "请先登录"
-            isLoading = false
-            return
-        }
-        isLoading = true
-        errorMessage = nil
-        do {
-            let ids = try await client.likedSongIDs(uid: uid)
-            var result = [Track]()
-            var offset = 0
-            while offset < ids.count {
-                let end = min(offset + 200, ids.count)
-                let chunk = Array(ids[offset..<end])
-                result.append(contentsOf: try await client.songDetails(ids: chunk))
-                offset = end
+    private var header: some View {
+        HStack {
+            SectionTitle(
+                title: "我喜欢的音乐",
+                subtitle: total == songs.count ? "\(total) 首" : "\(songs.count) / \(total) 首"
+            )
+            Spacer()
+            Button {
+                player.playAll(songs)
+            } label: {
+                Label("播放", systemImage: "play.fill")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(MelodiaTheme.accent, in: Capsule())
             }
-            songs = result
-        } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            .melodiaPressable(scale: 0.94)
+            .disabled(songs.isEmpty)
         }
-        isLoading = false
     }
 }
 

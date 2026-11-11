@@ -86,7 +86,7 @@ struct PlaylistCard: View {
                     .frame(width: width, alignment: .leading)
             }
         }
-        .buttonStyle(.plain)
+        .melodiaPressable(scale: 0.97)
     }
 }
 
@@ -111,7 +111,7 @@ struct AlbumCard: View {
                     .frame(width: width, alignment: .leading)
             }
         }
-        .buttonStyle(.plain)
+        .melodiaPressable(scale: 0.97)
     }
 }
 
@@ -132,7 +132,7 @@ struct ArtistCard: View {
                     .frame(width: width)
             }
         }
-        .buttonStyle(.plain)
+        .melodiaPressable(scale: 0.97)
     }
 }
 
@@ -187,8 +187,9 @@ struct TrackRow: View {
             }
             .contentShape(Rectangle())
             .padding(.vertical, 7)
+            .animation(MelodiaMotion.gentle, value: isCurrent)
         }
-        .buttonStyle(.plain)
+        .melodiaPressable(scale: 0.985)
     }
 }
 
@@ -220,7 +221,7 @@ struct MiniPlayer: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .melodiaPressable(scale: 0.985)
 
                 if player.isLoading {
                     ProgressView()
@@ -236,7 +237,7 @@ struct MiniPlayer: View {
                             .frame(width: 38, height: 38)
                             .background(MelodiaTheme.accent, in: Circle())
                     }
-                    .buttonStyle(.plain)
+                    .melodiaPressable(scale: 0.9)
                 }
 
                 Button {
@@ -247,7 +248,7 @@ struct MiniPlayer: View {
                         .foregroundStyle(MelodiaTheme.textSecondary)
                         .frame(width: 30, height: 34)
                 }
-                .buttonStyle(.plain)
+                .melodiaPressable(scale: 0.9)
                 .disabled(!player.hasNext)
             }
             .padding(8)
@@ -260,7 +261,7 @@ struct MiniPlayer: View {
             .task(id: track.id) {
                 await loadCoverColor(for: track)
             }
-            .animation(.easeInOut(duration: 0.8), value: fillColor)
+            .animation(MelodiaMotion.gentle, value: fillColor)
         }
     }
 

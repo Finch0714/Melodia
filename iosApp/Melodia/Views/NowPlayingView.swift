@@ -219,11 +219,16 @@ struct NowPlayingView: View {
     }
 
     private func coverArt(side: CGFloat) -> some View {
-        CoverImage(
-            url: player.currentTrack?.coverURL,
-            size: side,
-            cornerRadius: coverCornerRadius
-        )
+        ZStack {
+            CoverImage(
+                url: player.currentTrack?.coverURL,
+                size: side,
+                cornerRadius: coverCornerRadius
+            )
+            .id(player.currentTrack?.id)
+            .transition(.opacity)
+        }
+        .animation(MelodiaMotion.gentle, value: player.currentTrack?.id)
         .shadow(color: Color.black.opacity(0.28), radius: 16, y: 8)
     }
 

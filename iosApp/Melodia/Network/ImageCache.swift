@@ -163,10 +163,13 @@ struct CachedRemoteImage<Placeholder: View>: View {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
+                    .transition(.opacity.combined(with: .scale(scale: 1.015)))
             } else {
                 placeholder()
+                    .transition(.opacity)
             }
         }
+        .animation(MelodiaMotion.fade, value: image != nil)
         .task(id: url) {
             image = nil
             guard let url else { return }

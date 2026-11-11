@@ -28,6 +28,49 @@ enum MelodiaTheme {
     )
 }
 
+enum MelodiaMotion {
+    static let spring = Animation.spring(response: 0.46, dampingFraction: 0.82)
+    static let snappy = Animation.spring(response: 0.24, dampingFraction: 0.86)
+    static let gentle = Animation.easeInOut(duration: 0.32)
+    static let fade = Animation.easeOut(duration: 0.24)
+}
+
+struct MelodiaPressStyle: ButtonStyle {
+    var scale: CGFloat = 0.96
+    var pressedOpacity: Double = 0.86
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .opacity(configuration.isPressed ? pressedOpacity : 1)
+            .animation(MelodiaMotion.snappy, value: configuration.isPressed)
+    }
+}
+
+struct MelodiaRevealModifier: ViewModifier {
+    var delay: Double
+    var offset: CGFloat
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isVisible ? 1 : 0)
+            .offset(y: isVisible || reduceMotion ? 0 : offset)
+            .onAppear {
+                guard !isVisible else { return }
+                if reduceMotion {
+                    isVisible = true
+                } else {
+                    withAnimation(MelodiaMotion.gentle.delay(delay)) {
+                        isVisible = true
+                    }
+                }
+            }
+    }
+}
+
 extension View {
     func melodiaScreen() -> some View {
         self
@@ -53,5 +96,13 @@ struct MelodiaCardModifier: ViewModifier {
 extension View {
     func melodiaCard(radius: CGFloat = 20) -> some View {
         modifier(MelodiaCardModifier(radius: radius))
+    }
+
+    func melodiaPressable(scale: CGFloat = 0.96) -> some View {
+        buttonStyle(MelodiaPressStyle(scale: scale))
+    }
+
+    func melodiaReveal(delay: Double = 0, offset: CGFloat = 10) -> some View {
+        modifier(MelodiaRevealModifier(delay: delay, offset: offset))
     }
 }

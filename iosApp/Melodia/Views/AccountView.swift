@@ -13,10 +13,14 @@ struct AccountView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     if appModel.isLoggedIn {
                         profileSection
+                            .melodiaReveal()
                         quickActions
+                            .melodiaReveal(delay: 0.04)
                         playlistsSection
+                            .melodiaReveal(delay: 0.08)
                     } else {
                         loginSection
+                            .melodiaReveal()
                     }
 
                     if let loginError = appModel.loginError {
@@ -97,7 +101,7 @@ struct AccountView: View {
                 Divider().frame(height: 28).overlay(MelodiaTheme.divider)
                 statItem(value: "\(appModel.libraryAlbums.count)", label: "收藏专辑")
                 Divider().frame(height: 28).overlay(MelodiaTheme.divider)
-                statItem(value: "\(appModel.likedSongIDs.count)", label: "喜欢")
+                statItem(value: "\(appModel.likedSongsDisplayCount)", label: "喜欢")
             }
 
             Divider().overlay(MelodiaTheme.divider)
@@ -143,30 +147,30 @@ struct AccountView: View {
                 NavigationLink {
                     LikedSongsView()
                 } label: {
-                    quickCard(icon: "heart.fill", title: "我喜欢的音乐", subtitle: "\(appModel.likedSongIDs.count) 首")
+                    quickCard(icon: "heart.fill", title: "我喜欢的音乐", subtitle: "\(appModel.likedSongsDisplayCount) 首")
                 }
-                .buttonStyle(.plain)
+                .melodiaPressable(scale: 0.97)
 
                 NavigationLink {
                     AlbumShelfView()
                 } label: {
                     quickCard(icon: "square.stack.fill", title: "收藏专辑", subtitle: "\(appModel.libraryAlbums.count) 张")
                 }
-                .buttonStyle(.plain)
+                .melodiaPressable(scale: 0.97)
 
                 NavigationLink {
                     ListeningRankView()
                 } label: {
                     quickCard(icon: "chart.bar.fill", title: "听歌排行", subtitle: "本周与全部")
                 }
-                .buttonStyle(.plain)
+                .melodiaPressable(scale: 0.97)
 
                 NavigationLink {
                     UserPlaylistsView()
                 } label: {
                     quickCard(icon: "music.note.list", title: "我的歌单", subtitle: "\(appModel.libraryPlaylists.count) 个")
                 }
-                .buttonStyle(.plain)
+                .melodiaPressable(scale: 0.97)
             }
         }
     }

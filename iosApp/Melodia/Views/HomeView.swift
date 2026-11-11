@@ -42,8 +42,10 @@ struct HomeView: View {
                                 .padding(.top, 2)
                         } else {
                             recentGrid
+                                .melodiaReveal()
 
                             highlights
+                                .melodiaReveal(delay: 0.04)
                                 .padding(.top, recentPlaylists.isEmpty ? 0 : 4)
 
                             if isLoadingFeed && shelves.isEmpty {
@@ -55,6 +57,7 @@ struct HomeView: View {
 
                             ForEach(shelves) { shelf in
                                 HomeShelfSection(shelf: shelf)
+                                    .melodiaReveal(offset: 8)
                             }
 
                             if hasMoreShelves {
@@ -112,7 +115,7 @@ struct HomeView: View {
                         .background(Color.white.opacity(0.08), in: Circle())
                 }
             }
-            .buttonStyle(.plain)
+            .melodiaPressable(scale: 0.92)
             .accessibilityLabel("打开我的")
 
             HStack(spacing: 9) {
@@ -131,7 +134,7 @@ struct HomeView: View {
 
     private func filterPill(_ title: String, tag: Int) -> some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.18)) {
+            withAnimation(MelodiaMotion.snappy) {
                 homeFilter = tag
             }
         } label: {
@@ -145,7 +148,7 @@ struct HomeView: View {
                     in: Capsule()
                 )
         }
-        .buttonStyle(.plain)
+        .melodiaPressable(scale: 0.95)
     }
 
     @ViewBuilder
@@ -164,7 +167,7 @@ struct HomeView: View {
                     } label: {
                         RecentPlayTile(record: record)
                     }
-                    .buttonStyle(.plain)
+                    .melodiaPressable(scale: 0.97)
                 }
             }
             .padding(.horizontal, 18)
@@ -218,7 +221,7 @@ struct HomeView: View {
                                 .frame(width: 42, height: 42)
                                 .background(MelodiaTheme.accent, in: Circle())
                         }
-                        .buttonStyle(.plain)
+                        .melodiaPressable(scale: 0.9)
                     }
                 }
                 .padding(14)

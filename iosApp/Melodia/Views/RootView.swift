@@ -47,6 +47,7 @@ struct RootView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .animation(MelodiaMotion.spring, value: player.currentTrack != nil)
         .environmentObject(appModel)
         .environmentObject(player)
         .background(MelodiaTheme.background.ignoresSafeArea())

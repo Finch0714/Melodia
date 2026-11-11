@@ -24,12 +24,23 @@ final class AppModel: ObservableObject {
     @Published private(set) var likedSongIDs: Set<Int64> = []
     @Published private(set) var isLoadingLibrary = false
     @Published var libraryError: String?
+    @Published private(set) var likedSongs: [Track] = []
+    @Published private(set) var likedSongsTotal = 0
+    @Published private(set) var isLoadingLikedSongs = false
+    @Published private(set) var isBackfillingLikedSongs = false
+    @Published var likedSongsError: String?
 
     private let client = NeteaseClient.shared
     private var qrTask: Task<Void, Never>?
     private var qrSession: QRLoginSession?
     private var didBootstrap = false
     private var didLoadLibrary = false
+    private var didLoadLikedSongs = false
+    private var likedSongsTask: Task<Void, Never>?
+
+    var likedSongsDisplayCount: Int {
+        max(likedSongsTotal, likedSongIDs.count)
+    }
 
     func bootstrap() async {
         guard !didBootstrap else { return }
@@ -41,23 +52,23 @@ final class AppModel: ObservableObject {
     func loadHome() async {
         isLoadingHome = true
         homeError = nil
-        do {
-            homePlaylists = try await client.personalizedPlaylists()
-        } catch {
-            homeError = message(for: error)
-        }
-        do {
-            toplists = try await client.toplists()
-        } catch {
-            if homeError == nil {
-                homeError = message(for: error)
-            }
-        }
-        if isLoggedIn {
-            dailySongs = (try? await client.dailyRecommendations()) ?? []
+
+        async let personalized = try? client.personalizedPlaylists()
+        async let rankings = try? client.toplists()
+        async let daily = dailySongsIfLoggedIn()
+        let (personalizedValue, rankingsValue, dailyValue) = await (personalized, rankings, daily)
+
+        if let personalizedValue {
+            homePlaylists = personalizedValue
         } else {
-            dailySongs = []
+            homeError = 首页推荐加载失败，请稍后重试
         }
+        if let rankingsValue {
+            toplists = rankingsValue
+        } else if homeError == nil {
+            homeError = 排行榜加载失败，请稍后重试
+        }
+        dailySongs = dailyValue
         isLoadingHome = false
     }
 
@@ -87,29 +98,32 @@ final class AppModel: ObservableObject {
         isLoadingLibrary = true
         libraryError = nil
 
-        do {
-            libraryPlaylists = try await client.userPlaylists(uid: uid)
-        } catch {
-            libraryError = message(for: error)
-        }
-        do {
-            libraryAlbums = try await client.subscribedAlbums()
-        } catch {
-            if libraryError == nil { libraryError = message(for: error) }
-        }
-        do {
-            libraryCount = try await client.userSubcount()
-        } catch {
-            if libraryError == nil { libraryError = message(for: error) }
-        }
-        do {
-            likedSongIDs = Set(try await client.likedSongIDs(uid: uid))
-        } catch {
-            if libraryError == nil { libraryError = message(for: error) }
-        }
+        async let playlists = try? client.userPlaylists(uid: uid)
+        async let albums = try? client.subscribedAlbums()
+        async let count = try? client.userSubcount()
+        let (playlistsValue, albumsValue, countValue) = await (playlists, albums, count)
 
+        if let playlistsValue {
+            libraryPlaylists = playlistsValue
+        } else {
+            libraryError = 歌单加载失败，请稍后重试
+        }
+        if let albumsValue {
+            libraryAlbums = albumsValue
+        } else if libraryError == nil {
+            libraryError = 收藏专辑加载失败，请稍后重试
+        }
+        if let countValue {
+            libraryCount = countValue
+        } else if libraryError == nil {
+            libraryError = 账号资料加载失败，请稍后重试
+        }
         didLoadLibrary = true
         isLoadingLibrary = false
+
+        Task { [weak self] in
+            await self?.loadLikedSongs()
+        }
     }
 
     func isTrackLiked(_ track: Track) -> Bool {
@@ -126,11 +140,73 @@ final class AppModel: ObservableObject {
             try await client.likeSong(trackID: track.id, like: shouldLike)
             if shouldLike {
                 likedSongIDs.insert(track.id)
+                if didLoadLikedSongs && !likedSongs.contains(where: { $0.id == track.id }) {
+                    likedSongs.insert(track, at: 0)
+                    likedSongsTotal = max(likedSongsTotal + 1, likedSongs.count)
+                }
             } else {
                 likedSongIDs.remove(track.id)
+                if didLoadLikedSongs {
+                    likedSongs.removeAll { $0.id == track.id }
+                    likedSongsTotal = max(likedSongs.count, likedSongsTotal - 1)
+                }
             }
         } catch {
             libraryError = message(for: error)
+        }
+    }
+
+    func loadLikedSongs(force: Bool = false) async {
+        guard isLoggedIn, let uid = profile?.userId else {
+            likedSongsError = 请先登录后查看喜欢的音乐
+            isLoadingLikedSongs = false
+            return
+        }
+        if isLoadingLikedSongs && !force { return }
+        if didLoadLikedSongs && !force { return }
+
+        likedSongsTask?.cancel()
+        likedSongsTask = nil
+        isBackfillingLikedSongs = false
+        isLoadingLikedSongs = true
+        likedSongsError = nil
+
+        let likedPlaylistID = libraryPlaylists.first(where: {
+            $0.isLikedPlaylist || $0.id == uid
+        })?.id ?? uid
+
+        do {
+            let detail = try await client.playlist(id: likedPlaylistID)
+            guard !Task.isCancelled else { return }
+            likedSongsTotal = max(max(detail.trackCount, detail.trackIds.count), detail.tracks.count)
+            let allIDs = detail.trackIds.isEmpty ? detail.tracks.map(\.id) : detail.trackIds.map(\.id)
+            if !allIDs.isEmpty {
+                likedSongIDs = Set(allIDs)
+            }
+
+            if !detail.tracks.isEmpty {
+                likedSongs = detail.tracks
+                finishInitialLikedSongsLoad()
+                let loadedIDs = Set(detail.tracks.map(\.id))
+                backfillLikedSongs(ids: detail.trackIds.map(\.id).filter { !loadedIDs.contains($0) })
+                return
+            }
+
+            let ids = detail.trackIds.map(\.id)
+            if !ids.isEmpty {
+                let firstIDs = Array(ids.prefix(200))
+                likedSongs = try await client.songDetails(ids: firstIDs)
+                guard !Task.isCancelled else { return }
+                finishInitialLikedSongsLoad()
+                backfillLikedSongs(ids: Array(ids.dropFirst(firstIDs.count)))
+                return
+            }
+
+            likedSongs = []
+            finishInitialLikedSongsLoad()
+        } catch {
+            guard !Task.isCancelled else { return }
+            await loadLikedSongsFromLikes(uid: uid)
         }
     }
 
@@ -219,13 +295,77 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func dailySongsIfLoggedIn() async -> [Track] {
+        guard isLoggedIn else { return [] }
+        return (try? await client.dailyRecommendations()) ?? []
+    }
+
+    private func finishInitialLikedSongsLoad() {
+        likedSongsTotal = max(likedSongsTotal, likedSongs.count)
+        didLoadLikedSongs = true
+        isLoadingLikedSongs = false
+    }
+
+    private func loadLikedSongsFromLikes(uid: Int64) async {
+        do {
+            let ids = try await client.likedSongIDs(uid: uid)
+            guard !Task.isCancelled else { return }
+            likedSongIDs = Set(ids)
+            likedSongsTotal = max(likedSongsTotal, ids.count)
+            let firstIDs = Array(ids.prefix(200))
+            likedSongs = try await client.songDetails(ids: firstIDs)
+            guard !Task.isCancelled else { return }
+            finishInitialLikedSongsLoad()
+            backfillLikedSongs(ids: Array(ids.dropFirst(firstIDs.count)))
+        } catch {
+            guard !Task.isCancelled else { return }
+            likedSongsError = message(for: error)
+            isLoadingLikedSongs = false
+        }
+    }
+
+    private func backfillLikedSongs(ids: [Int64]) {
+        guard !ids.isEmpty else {
+            isBackfillingLikedSongs = false
+            return
+        }
+        isBackfillingLikedSongs = true
+        likedSongsTask = Task { [weak self] in
+            guard let self else { return }
+            var offset = 0
+            while offset < ids.count && !Task.isCancelled {
+                let end = min(offset + 1000, ids.count)
+                let chunk = Array(ids[offset..<end])
+                if let batch = try? await self.client.songDetails(ids: chunk), !Task.isCancelled {
+                    let existingIDs = Set(self.likedSongs.map(\.id))
+                    let newTracks = batch.filter { !existingIDs.contains($0.id) }
+                    if !newTracks.isEmpty {
+                        self.likedSongs.append(contentsOf: newTracks)
+                        self.likedSongsTotal = max(self.likedSongsTotal, self.likedSongs.count)
+                    }
+                }
+                offset = end
+            }
+            if !Task.isCancelled {
+                self.isBackfillingLikedSongs = false
+            }
+        }
+    }
+
     private func clearLibrary() {
+        likedSongsTask?.cancel()
+        likedSongsTask = nil
         libraryPlaylists = []
         libraryAlbums = []
         libraryCount = nil
         likedSongIDs = []
+        likedSongs = []
+        likedSongsTotal = 0
+        isBackfillingLikedSongs = false
+        likedSongsError = nil
         libraryError = nil
         didLoadLibrary = false
+        didLoadLikedSongs = false
     }
 
     private func message(for error: Error) -> String {
