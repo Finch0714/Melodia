@@ -752,36 +752,40 @@ struct NowPlayingView: View {
         return try? await NeteaseClient.shared.songWiki(songID: id)
     }
     private func lyricsScreen(size: CGSize, wide: Bool, safeTop: CGFloat, safeBottom: CGFloat) -> some View {
-        ZStack(alignment: .top) {
+        let resolvedTopInset = safeTop > 0 ? safeTop : (size.height > size.width ? 48 : 12)
+
+        return ZStack {
             playerBackground(blurred: true)
                 .overlay(Color.black.opacity(0.30))
                 .ignoresSafeArea()
-
-            lyricsScrollContent(size: size, wide: wide)
-                .padding(.top, safeTop + 68)
-                .padding(.bottom, safeBottom)
 
             LinearGradient(
                 colors: [Color.black.opacity(0.62), Color.black.opacity(0.16), .clear],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: safeTop + 92)
+            .frame(height: resolvedTopInset + 96)
             .frame(maxWidth: .infinity, alignment: .top)
             .ignoresSafeArea(edges: .top)
             .allowsHitTesting(false)
-            .zIndex(99)
 
-            lyricsTopBar
-                .padding(.horizontal, 14)
-                .padding(.top, safeTop + 8)
-                .zIndex(1000)
+            VStack(spacing: 0) {
+                lyricsTopBar
+                    .padding(.horizontal, 14)
+                    .padding(.top, resolvedTopInset + 8)
+                    .padding(.bottom, 8)
+
+                lyricsScrollContent(size: size, wide: wide)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.bottom, safeBottom)
+            }
+            .frame(width: size.width, height: size.height, alignment: .top)
         }
         .contentShape(Rectangle())
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
                 .onEnded { value in
-                    guard value.startLocation.y < safeTop + 120 else { return }
+                    guard value.startLocation.y < resolvedTopInset + 120 else { return }
                     if value.translation.height > 64 {
                         showLyrics = false
                     }
