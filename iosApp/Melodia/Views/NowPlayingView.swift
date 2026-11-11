@@ -64,7 +64,10 @@ struct NowPlayingView: View {
                     .frame(width: width, height: height)
 
                 if showLyrics {
-                    lyricsScreen(size: size, wide: wide, safeTop: safeTop, safeBottom: safeBottom)
+                    lyricsScreen(size: size, wide: wide, safeBottom: safeBottom)
+                        .overlay(alignment: .top) {
+                            lyricsHeader(safeTop: safeTop, size: size)
+                        }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(2)
                 } else {
@@ -751,46 +754,47 @@ struct NowPlayingView: View {
         guard id > 0 else { return nil }
         return try? await NeteaseClient.shared.songWiki(songID: id)
     }
-    private func lyricsScreen(size: CGSize, wide: Bool, safeTop: CGFloat, safeBottom: CGFloat) -> some View {
-        let resolvedTopInset = safeTop > 0 ? safeTop : (size.height > size.width ? 48 : 12)
-
-        return ZStack {
+    private func lyricsScreen(size: CGSize, wide: Bool, safeBottom: CGFloat) -> some View {
+        ZStack {
             playerBackground(blurred: true)
                 .overlay(Color.black.opacity(0.30))
                 .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .zIndex(0)
 
-            LinearGradient(
-                colors: [Color.black.opacity(0.62), Color.black.opacity(0.16), .clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: resolvedTopInset + 96)
-            .frame(maxWidth: .infinity, alignment: .top)
-            .ignoresSafeArea(edges: .top)
-            .allowsHitTesting(false)
-
-            VStack(spacing: 0) {
-                lyricsTopBar
-                    .padding(.horizontal, 14)
-                    .padding(.top, resolvedTopInset + 8)
-                    .padding(.bottom, 8)
-
-                lyricsScrollContent(size: size, wide: wide)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.bottom, safeBottom)
-            }
-            .frame(width: size.width, height: size.height, alignment: .top)
+            lyricsScrollContent(size: size, wide: wide)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.bottom, safeBottom)
+                .zIndex(1)
         }
-        .contentShape(Rectangle())
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 24)
-                .onEnded { value in
-                    guard value.startLocation.y < resolvedTopInset + 120 else { return }
-                    if value.translation.height > 64 {
-                        showLyrics = false
+        .frame(width: size.width, height: size.height)
+    }
+
+    private func lyricsHeader(safeTop: CGFloat, size: CGSize) -> some View {
+        let resolvedTopInset = safeTop > 0 ? safeTop : (size.height > size.width ? 48 : 12)
+
+        return lyricsTopBar
+            .padding(.horizontal, 14)
+            .padding(.top, resolvedTopInset + 8)
+            .padding(.bottom, 10)
+            .background(
+                LinearGradient(
+                    colors: [Color.black.opacity(0.72), Color.black.opacity(0.22), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea(edges: .top)
+            )
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 24)
+                    .onEnded { value in
+                        if value.translation.height > 64 {
+                            showLyrics = false
+                        }
                     }
-                }
-        )
+            )
+            .zIndex(100)
     }
 
     private var lyricsTopBar: some View {
